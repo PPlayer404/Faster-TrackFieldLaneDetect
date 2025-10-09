@@ -144,6 +144,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Cluster.cpp" />
+    <ClCompile Include="hardware.cpp" />
     <ClCompile Include="Lane.cpp" />
     <ClCompile Include="legacy_main.cpp" />
     <ClCompile Include="main.cpp" />
@@ -153,6 +154,7 @@
     <ClCompile Include="World.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="hardware.hpp" />
     <ClInclude Include="Lane.hpp" />
     <ClInclude Include="Cluster.hpp" />
     <ClInclude Include="mode.hpp" />
