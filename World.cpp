@@ -13,7 +13,7 @@ struct LaneDescriptor
 
 struct LaneKalmanFilter 
 {
-    cv::KalmanFilter kf_left;
+    cv::KalmanFilter kf_left; 
     cv::KalmanFilter kf_right;
     bool left_initialized;
     bool right_initialized;
