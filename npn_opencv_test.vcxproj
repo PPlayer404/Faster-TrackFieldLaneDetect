@@ -76,7 +76,7 @@
     <LibraryPath>E:\ESoftware\QtProjects\opencv\onnxruntime-win-x64-1.22.0\lib;E:\ESoftware\opencv\opencv\build\x64\vc16\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>E:\ESoftware\opencv\opencv\build\include;$(IncludePath)</IncludePath>
+    <IncludePath>E:\ESoftware\QtProjects\opencv\Lane_test\include;E:\ESoftware\opencv\opencv\build\include;$(IncludePath)</IncludePath>
     <LibraryPath>E:\ESoftware\opencv\opencv\build\x64\vc16\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -143,27 +143,40 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Cluster.cpp" />
-    <ClCompile Include="hardware.cpp" />
-    <ClCompile Include="Lane.cpp" />
-    <ClCompile Include="legacy_main.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="Retrans.cpp" />
-    <ClCompile Include="test.cpp" />
-    <ClCompile Include="ThreadManager.cpp" />
-    <ClCompile Include="World.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="hardware.hpp" />
-    <ClInclude Include="Lane.hpp" />
-    <ClInclude Include="Cluster.hpp" />
-    <ClInclude Include="mode.hpp" />
-    <ClInclude Include="Retrans.hpp" />
-    <ClInclude Include="ThreadManager.hpp" />
-    <ClInclude Include="World.hpp" />
+    <ClCompile Include="src\Cluster.cpp" />
+    <ClCompile Include="src\hardware.cpp" />
+    <ClCompile Include="src\Lane.cpp" />
+    <ClCompile Include="src\legacy_main.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Retrans.cpp" />
+    <ClCompile Include="src\test.cpp" />
+    <ClCompile Include="src\ThreadManager.cpp" />
+    <ClCompile Include="src\World.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="Readme.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\Cluster.hpp" />
+    <ClInclude Include="include\hardware.hpp" />
+    <ClInclude Include="include\Lane.hpp" />
+    <ClInclude Include="include\mode.hpp" />
+    <ClInclude Include="include\Retrans.hpp" />
+    <ClInclude Include="include\ThreadManager.hpp" />
+    <ClInclude Include="include\World.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Media Include="img\example.mp4" />
+    <Media Include="img\example2.mp4" />
+    <Media Include="img\example3.mp4" />
+    <Media Include="img\output_2.mp4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="img\img.jpg" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".gitattributes" />
+    <None Include=".gitignore" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
