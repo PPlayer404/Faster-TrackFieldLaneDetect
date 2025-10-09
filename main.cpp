@@ -54,7 +54,9 @@ void frameReader()
     cv::Mat frame, processedFrame, tinyImg;
     while (1)
     {
-        /*delay_ms(500);*/
+#ifdef DEBUG
+        delay_ms(50);
+#endif
         cap >> frame;
 #ifdef _WIN32
         if (frame.empty()) {
@@ -199,6 +201,7 @@ void worldFuse()
         {
             std::lock_guard<std::mutex> lk(gSnapMutex);
             drawClusterLines(rawFrame, gSnap.lanes);
+			drawMiddleLines(rawFrame, gSnap.dAngle, gSnap.dX);
         }
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(1) << displayFps << " fps";
