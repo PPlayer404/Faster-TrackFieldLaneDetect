@@ -4,28 +4,33 @@
 #include <mutex>
 #include <chrono>
 #include "Cluster.hpp"
+#include <cstdint>
 
-#define TEST 0
-#define WAIT 1
-#define BEFORE_CONE 2
-#define AVOIDING 3
-#define AFTER_CONE 4
-#define MEET_ZEBRA 5
-#define STOPPED 6
-#define TURN 7
-#define GO_STRAIGHT 8
-#define RETURN 9
-#define STRAIGHT_AGAIN 10
-#define FORWARD 11
-#define TURN2 12
-#define FINAL_STOP 13
+/// @brief 状态机状态定义
+namespace state 
+{
+    inline constexpr int TEST = 0;
+    inline constexpr int WAIT = 1;
+    inline constexpr int BEFORE_CONE = 2;
+    inline constexpr int AVOIDING = 3;
+    inline constexpr int AFTER_CONE = 4;
+    inline constexpr int MEET_ZEBRA = 5;
+    inline constexpr int STOPPED = 6;
+    inline constexpr int TURN = 7;
+    inline constexpr int GO_STRAIGHT = 8;
+    inline constexpr int RETURN = 9;
+    inline constexpr int STRAIGHT_AGAIN = 10;
+    inline constexpr int FORWARD = 11;
+    inline constexpr int TURN2 = 12;
+    inline constexpr int FINAL_STOP = 13;
 
-#define LEFT_CONE 0 
-#define RIGHT_CONE 1
-#define LEFT 0
-#define RIGHT 1
-#define A 0
-#define B 1
+    inline constexpr int LEFT_CONE = 0;
+    inline constexpr int RIGHT_CONE = 1;
+    inline constexpr int LEFT = 0;
+    inline constexpr int RIGHT = 1;
+    inline constexpr int A = 0;
+    inline constexpr int B = 1;
+}
 
 /// @brief yolo的这两个数据类型定义以后要移出去
 enum class YoloType : uint8_t { coneBlue, coneYellow, left, right, signA, signB, zebra };
@@ -44,7 +49,7 @@ struct WorldSnapshot {
     std::vector<ClusterDescriptor> lanes;
     std::vector<YoloBox>           yolos;
     float                          currentSpeed;
-    int                            State = TEST;
+    int                            State = state::TEST;
     int                            dX;
     float                          dAngle;
     float                          mcuAngle = 0;
@@ -71,5 +76,7 @@ private:
     std::mutex mtx_;             // 只保护 swap
     uint64_t frameId_ = 0;
 };
+
+void drawMiddleLines(cv::Mat& frame, float dAngle, int dX);
 
 #endif

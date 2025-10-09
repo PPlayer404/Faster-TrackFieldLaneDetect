@@ -11,4 +11,6 @@ struct ClusterDescriptor
 std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes);
 void drawClusterLines(cv::Mat& frame, const std::vector<ClusterDescriptor>& descriptors);
 
+#define REFERENCE_Y 60
+
 #endif 

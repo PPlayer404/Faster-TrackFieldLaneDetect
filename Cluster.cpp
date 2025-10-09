@@ -165,7 +165,7 @@ void drawClusterLines(cv::Mat& frame, const std::vector<ClusterDescriptor>& desc
 /// @return 簇描述子
 std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes)
 {
-    int referenceY = 60; // 水平线交点参考线
+    int referenceY = REFERENCE_Y; // 水平线交点参考线
     float kTreshold = 0.5f; // 水平线斜率阈值
     std::vector<int> crossPointX; // 存储每个线段的水平交点
     std::vector<int> lineLengths; // 存储每个线段的长度
