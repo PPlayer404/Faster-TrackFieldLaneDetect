@@ -16,7 +16,7 @@ struct LaneKalmanFilter
     cv::KalmanFilter kf_left; 
     cv::KalmanFilter kf_right;
     bool left_initialized;
-    bool right_initialized; 
+    bool right_initialized;  
     double last_left_angle;
     double last_right_angle;
     int last_left_x;
@@ -296,16 +296,15 @@ LaneDescriptor getMiddleLane(std::vector<LaneDescriptor>& lanes)
     constexpr int REF_Y = 60;
     constexpr int CTR_X = IMG_W / 2;
     constexpr int BOTTOM_Y = IMG_H - 1;
-    constexpr double OFFSET_DIST = 30.0;
+    constexpr double OFFSET_DIST = 36.0;
 
     static LaneDescriptor lastMiddleLane = { 0, 0 };
 
     static cv::Mat ipm_mat = (cv::Mat_<double>(3, 3) <<
-        0.8, -0.3, 120,    // 缩放 + 水平校正 + 水平平移
-        -0.1, 1.2, -200,   // 缩放 + 垂直校正 + 垂直平移
-        0.0005, 0.003, 1     // 透视变换参数
+        4.000000, 4.200000, -312.000000,
+        0.000000, 5.600000, -0.000000,
+        0.000000, 0.038333, 1.000000
         );
-
     static cv::Mat ipm_mat_inv;
     static bool initialized = false;
 

@@ -165,6 +165,7 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
     Lanes.insert(Lanes.end(), linesY.begin(), linesY.end());
     Lanes.insert(Lanes.end(), lines45.begin(), lines45.end());
 
+#ifdef WITH_IMSHOW
     //绘制
     cv::Mat img_with_lanes = processed_img.clone();
     for (const auto& l : Lanes)
@@ -172,10 +173,17 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
             cv::Point(l[0], l[1]),
             cv::Point(l[2], l[3]),
             cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
-#ifdef WITH_IMSHOW
-    cv::imshow("Lanes on Processed Image", img_with_lanes);
+    cv::Mat H = (cv::Mat_<double>(3, 3) <<
+        2.500000, 2.500000, -180.000000,
+        -0.000000, 3.500000, 0.000000,
+        -0.000000, 0.020833, 1.000000
+        );
+    cv::Mat birdEye;
+    cv::warpPerspective(img_with_lanes, birdEye, H, cv::Size(240, 240));
+    cv::imshow("Bird-Eye View", birdEye);
     cv::imshow("edge", edges.sDiag);
     cv::imshow("edgeY", edges.sVert);
+	cv::waitKey(1);
 #endif
 
     return Lanes;
