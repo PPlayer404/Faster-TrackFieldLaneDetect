@@ -29,7 +29,7 @@ void frameReader()
 {
     uint64_t frameId = 0;
 #ifdef _WIN32
-    cv::VideoCapture cap("example.mp4");
+    cv::VideoCapture cap("img/example.mp4");
     if (!cap.isOpened())
     {
         std::cerr << "无法打开视频\n";
