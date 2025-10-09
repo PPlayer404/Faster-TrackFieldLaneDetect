@@ -16,7 +16,7 @@ struct LaneKalmanFilter
     cv::KalmanFilter kf_left; 
     cv::KalmanFilter kf_right;
     bool left_initialized;
-    bool right_initialized;
+    bool right_initialized; 
     double last_left_angle;
     double last_right_angle;
     int last_left_x;
