@@ -1,6 +1,7 @@
 ﻿#include <opencv2/opencv.hpp>
 #include "Cluster.hpp"
 #include <cmath>
+#include "mode.hpp"
 
 /// @brief 可视化聚类结果，工具函数
 /// @param densityResult KDE曲线
@@ -358,6 +359,7 @@ std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes)
     //可视化结果 可选
 #ifdef WITH_IMSHOW
     visualizeKDEWithClusters(densityResult, crossPointX, lineLengths, clusters);
+	cv::waitKey(1);
 #endif
     return descriptors;
 }
