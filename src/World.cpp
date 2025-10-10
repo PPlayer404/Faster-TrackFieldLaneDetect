@@ -516,7 +516,6 @@ WorldSnapshot World::dataSync()
 
     //融合/滤波，snap 的字段上算，算完 return
     std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, RESET);
-
 	LaneDescriptor middleDescriptor = getMiddleLane(tracked_lanes);
 	snap.dX = (int)(middleDescriptor.peakX);
 	snap.dAngle = (float)(middleDescriptor.mainAngle);
