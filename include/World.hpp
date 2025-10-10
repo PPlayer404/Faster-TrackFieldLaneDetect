@@ -37,22 +37,26 @@ enum class YoloType : uint8_t { coneBlue, coneYellow, left, right, signA, signB,
 struct YoloBox { YoloType type; float x, y, w, h; };
 
 // 2. 双缓冲内部块 
-struct WorldBuf {
+struct WorldBuf 
+{
     std::vector<ClusterDescriptor> lanes;
     std::vector<YoloBox>           yolos;
     float                          currentSpeed;
-    float                          mcuAngle;
+    float                          imuAngle;
 };
 
 /* 3. 对外快照（只读，POD 或 vector）*/
-struct WorldSnapshot {
+struct WorldSnapshot 
+{
     std::vector<ClusterDescriptor> lanes;
     std::vector<YoloBox>           yolos;
     float                          currentSpeed;
     int                            State = state::TEST;
     int                            dX;
     float                          dAngle;
-    float                          mcuAngle = 0;
+    float                          imuAngle = 0;
+	int                            motorOutput;//目标电机PWM输出
+	int 						   servoOutput;//目标舵机PWM输出
     uint64_t                       frameId = 0;
 };
 
@@ -64,7 +68,7 @@ public:
     void updateLanes(std::vector<ClusterDescriptor> v);
     void updateYolos(std::vector<YoloBox> v);
     void updateSpeed(float v);
-    void updateMCU(float angle);
+    void updateIMU(float angle);
 
     /* 4.2 world 线程入口：返回一份计算好的快照 */
     WorldSnapshot dataSync();

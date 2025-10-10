@@ -474,9 +474,9 @@ void World::updateSpeed(float v)
     bufFront_.currentSpeed = v;
 }
 
-void World::updateMCU(float angle)
+void World::updateIMU(float angle)
 {
-    bufFront_.mcuAngle = angle;
+    bufFront_.imuAngle = angle;
 }
 
 /// @brief 构造函数，给一个初始值
@@ -484,7 +484,7 @@ World::World()
 {
     WorldBuf init;
     init.currentSpeed = 0.0f;
-    init.mcuAngle = 0;
+    init.imuAngle = 0;
     // yolos 默认空，就不填了
 
     bufFront_ = init;
@@ -501,7 +501,7 @@ WorldSnapshot World::dataSync()
         ++frameId_;
     }  // 锁已释放
 
-    //无锁，用的数据是 bufBack_ 
+	//无锁，用的数据是bufBack_,先实例化一个快照
     WorldSnapshot snap
     {
         bufBack_.lanes,//lanes
@@ -510,15 +510,18 @@ WorldSnapshot World::dataSync()
         state::TEST,//state
         0,//dx
         0,//dAngle
-        bufBack_.mcuAngle,//mcuAngle
+        bufBack_.imuAngle,//imuAngle
+		0,//motorOutput
+		0,//servoOutput
         frameId_//frameId
     };
 
     //融合/滤波，snap 的字段上算，算完 return
-    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, RESET);
+    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, DEFAULT);
 	LaneDescriptor middleDescriptor = getMiddleLane(tracked_lanes);
 	snap.dX = (int)(middleDescriptor.peakX);
 	snap.dAngle = (float)(middleDescriptor.mainAngle);
+    //stanley();
 
     return snap;  // NRVO/move，读者无锁
 }
