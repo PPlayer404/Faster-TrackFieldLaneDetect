@@ -149,6 +149,7 @@ void sendMat()
     }
 }
 
+/// @brief 融合传感器数据，更新世界模型，输出控制信息
 void worldFuse()
 {
     using Clock = std::chrono::steady_clock;
@@ -220,19 +221,27 @@ void worldFuse()
     }
 }
 
-void controlThread()
+/// @brief 唤醒周期100Hz，100Hz读取imu数据，50Hz平滑更新目标舵机角度和电机输出
+void imuAndControl()
 {
-    while (1)
-    {
-        delay_ms(1000);
-    }
-}
+    using clock = std::chrono::steady_clock;
+    const auto period = std::chrono::milliseconds(10); // 100 Hz
+    auto next = clock::now() + period;                 // 第一次的到期点
+	uint8_t cnt = 0;
 
-void MPUThread()
-{
-    while (1)
+    while (true)
     {
-        delay_ms(1000);
+		delay_ms(5);    // 占位，在这里读取imu数据
+        
+        //50Hz唤醒
+        if(cnt == 0)
+        {
+            //读取当前的目标舵机角度和电机输出，然后限制jerk平滑输出
+		}
+        cnt = 1 - cnt;
+		
+        std::this_thread::sleep_until(next);
+        next += period;
     }
 }
 
@@ -249,15 +258,13 @@ int main()
     std::thread t3(YOLO_Run);
     std::thread t4(sendMat);
     std::thread t5(worldFuse);
-    std::thread t6(controlThread);
-    std::thread t7(MPUThread);
+    std::thread t6(imuAndControl);
     setThreadAffinity(t1, { 2 });
     setThreadAffinity(t2, { 3 });
     setThreadAffinity(t3, { 1 });
     setThreadAffinity(t4, { 0 });
     setThreadAffinity(t5, { 1 });
     setThreadAffinity(t6, { 1 });
-    setThreadAffinity(t7, { 1 });
     for (;;)
     {
         delay_ms(10000);
