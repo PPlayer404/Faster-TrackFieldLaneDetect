@@ -3,6 +3,10 @@
 #include "mode.hpp"
 #include <climits>
 
+#define DEFAULT 0
+#define RECHECK 1
+#define RESET 2
+
 struct LaneDescriptor
 {
     int peakX;          // 起始生长点（x坐标）
@@ -42,7 +46,12 @@ struct LaneKalmanFilter
 
 LaneKalmanFilter tracker;
 
-std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, LaneKalmanFilter& tracker)
+/// @brief 使用卡尔曼滤波进行车道线跟踪和预测
+/// @param lanes 输入的车道线聚类描述子集合
+/// @param tracker 车道线卡尔曼滤波器跟踪器
+/// @param mode 工作模式：DEFAULT(0)-默认模式, RECHECK(1)-重新检查模式, RESET(2)-重置模式
+/// @return 返回跟踪后的车道线描述子（包含左右车道线，索引左0右1）
+std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, LaneKalmanFilter& tracker, int mode)
 {
     std::vector<LaneDescriptor> result;
     static const int IMAGE_CENTER = 120;
@@ -54,9 +63,63 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
     static const double ANGLE_WEIGHT = 0.3;
     static const double MIN_SCORE_THRESHOLD = 0.5;
 
+    // Precompute candidates if lanes are not empty
+    std::vector<ClusterDescriptor> left_candidates;
+    std::vector<ClusterDescriptor> right_candidates;
+    if (!lanes.empty()) {
+        for (const auto& lane : lanes) {
+            if (lane.peakX < IMAGE_CENTER) {
+                left_candidates.push_back(lane);
+            }
+            else {
+                right_candidates.push_back(lane);
+            }
+        }
+        std::sort(left_candidates.begin(), left_candidates.end(),
+            [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
+                return a.peakX > b.peakX;
+            });
+        std::sort(right_candidates.begin(), right_candidates.end(),
+            [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
+                return a.peakX < b.peakX;
+            });
+    }
+
+    // Handle mode: RECHECK and RESET
+    bool reset_left = false;
+    bool reset_right = false;
+    if (mode == RECHECK) {
+        if (!lanes.empty()) {
+            if (tracker.left_initialized && !left_candidates.empty()) {
+                float current_left_x = tracker.kf_left.statePost.at<float>(0);
+                float candidate_left_x = left_candidates[0].peakX;
+                if (std::abs(candidate_left_x - current_left_x) > 40) {
+                    reset_left = true;
+                }
+            }
+            if (tracker.right_initialized && !right_candidates.empty()) {
+                float current_right_x = tracker.kf_right.statePost.at<float>(0);
+                float candidate_right_x = right_candidates[0].peakX;
+                if (std::abs(candidate_right_x - current_right_x) > 40) {
+                    reset_right = true;
+                }
+            }
+        }
+    }
+    else if (mode == RESET) {
+        reset_left = true;
+        reset_right = true;
+    }
+    if (reset_left) {
+        tracker.left_initialized = false;
+    }
+    if (reset_right) {
+        tracker.right_initialized = false;
+    }
+
+    // Original logic
     if (lanes.empty()) {
         LaneDescriptor left_lane, right_lane;
-
         if (tracker.left_initialized) {
             tracker.kf_left.predict();
             tracker.kf_left.statePost.at<float>(1) *= VELOCITY_DECAY;
@@ -70,7 +133,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             left_lane.leftLoss = true;
             left_lane.rightLoss = false;
         }
-
         if (tracker.right_initialized) {
             tracker.kf_right.predict();
             tracker.kf_right.statePost.at<float>(1) *= VELOCITY_DECAY;
@@ -84,7 +146,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             right_lane.leftLoss = false;
             right_lane.rightLoss = true;
         }
-
         result.push_back(left_lane);
         result.push_back(right_lane);
 
@@ -96,35 +157,11 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             cv::circle(vis, cv::Point(right_lane.peakX, 60), 5, cv::Scalar(0, 0, 255), -1);
         }
         cv::imshow("Lane Tracking", vis);
-
         return result;
     }
 
-    std::vector<ClusterDescriptor> left_candidates;
-    std::vector<ClusterDescriptor> right_candidates;
-
-    for (const auto& lane : lanes) {
-        if (lane.peakX < IMAGE_CENTER) {
-            left_candidates.push_back(lane);
-        }
-        else {
-            right_candidates.push_back(lane);
-        }
-    }
-
-    std::sort(left_candidates.begin(), left_candidates.end(),
-        [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
-            return a.peakX > b.peakX;
-        });
-
-    std::sort(right_candidates.begin(), right_candidates.end(),
-        [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
-            return a.peakX < b.peakX;
-        });
-
     int left_index = -1, right_index = -1;
     LaneDescriptor left_lane, right_lane;
-
     const int MATCH_THRESHOLD = 30;
 
     if (tracker.left_initialized) {
@@ -132,13 +169,10 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         for (size_t i = 0; i < left_candidates.size(); ++i) {
             float dist = std::abs(left_candidates[i].peakX - tracker.last_left_x);
             if (dist > MATCH_THRESHOLD) continue;
-
             float dist_score = 1.0f - dist / MATCH_THRESHOLD;
             float angle_diff = std::abs(left_candidates[i].mainAngle - tracker.last_left_angle);
             float angle_score = (angle_diff < ANGLE_THRESHOLD) ? (1.0f - angle_diff / ANGLE_THRESHOLD) : 0;
-
             float total_score = POSITION_WEIGHT * dist_score + ANGLE_WEIGHT * angle_score;
-
             if (total_score > best_score && total_score >= MIN_SCORE_THRESHOLD) {
                 best_score = total_score;
                 left_index = i;
@@ -156,13 +190,10 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         for (size_t i = 0; i < right_candidates.size(); ++i) {
             float dist = std::abs(right_candidates[i].peakX - tracker.last_right_x);
             if (dist > MATCH_THRESHOLD) continue;
-
             float dist_score = 1.0f - dist / MATCH_THRESHOLD;
             float angle_diff = std::abs(right_candidates[i].mainAngle - tracker.last_right_angle);
             float angle_score = (angle_diff < ANGLE_THRESHOLD) ? (1.0f - angle_diff / ANGLE_THRESHOLD) : 0;
-
             float total_score = POSITION_WEIGHT * dist_score + ANGLE_WEIGHT * angle_score;
-
             if (total_score > best_score && total_score >= MIN_SCORE_THRESHOLD) {
                 best_score = total_score;
                 right_index = i;
@@ -189,7 +220,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
 
     if (left_index != -1) {
         cv::Mat measurement = (cv::Mat_<float>(1, 1) << left_candidates[left_index].peakX);
-
         if (!tracker.left_initialized) {
             tracker.kf_left.statePre.at<float>(0) = left_candidates[left_index].peakX;
             tracker.kf_left.statePre.at<float>(1) = 0;
@@ -202,7 +232,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             tracker.kf_left.correct(measurement);
             tracker.last_left_x = left_candidates[left_index].peakX;
         }
-
         cv::Mat left_state = tracker.kf_left.statePost;
         left_lane.peakX = left_state.at<float>(0);
         left_lane.mainAngle = left_candidates[left_index].mainAngle;
@@ -226,7 +255,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
 
     if (right_index != -1) {
         cv::Mat measurement = (cv::Mat_<float>(1, 1) << right_candidates[right_index].peakX);
-
         if (!tracker.right_initialized) {
             tracker.kf_right.statePre.at<float>(0) = right_candidates[right_index].peakX;
             tracker.kf_right.statePre.at<float>(1) = 0;
@@ -239,7 +267,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             tracker.kf_right.correct(measurement);
             tracker.last_right_x = right_candidates[right_index].peakX;
         }
-
         cv::Mat right_state = tracker.kf_right.statePost;
         right_lane.peakX = right_state.at<float>(0);
         right_lane.mainAngle = right_candidates[right_index].mainAngle;
@@ -287,8 +314,10 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
 }
 
 /// @brief dx方向：中线在图像中右偏为正，左偏为负； dAngle方向：车道线向左倾斜为正，右倾斜为负，0°垂直
-/// @param lanes 
-/// @return 
+/// 内部带有针对不同情况的处理算法，当两侧车道线均丢失时，返回上次的中线位置，
+/// 单侧丢线时，基于存活车道线，车道线宽度和正反逆透视估计中线位置，透视矩阵为静态变量，开启WITH_IMSHOW之后可以自行在Lane.cpp中矫正逆透视矩阵再复制回来
+/// @param lanes 车道线描述子集合，索引左0右1
+/// @return 中线描述子
 LaneDescriptor getMiddleLane(std::vector<LaneDescriptor>& lanes)
 {
     constexpr int IMG_W = 240;
@@ -486,7 +515,7 @@ WorldSnapshot World::dataSync()
     };
 
     //融合/滤波，snap 的字段上算，算完 return
-    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker);
+    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, RESET);
 
 	LaneDescriptor middleDescriptor = getMiddleLane(tracked_lanes);
 	snap.dX = (int)(middleDescriptor.peakX);
