@@ -51,7 +51,7 @@ LaneKalmanFilter tracker;
 /// @param tracker 车道线卡尔曼滤波器跟踪器
 /// @param mode 工作模式：DEFAULT(0)-默认模式, RECHECK(1)-重新检查模式, RESET(2)-重置模式
 /// @return 返回跟踪后的车道线描述子（包含左右车道线，索引左0右1）
-std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, LaneKalmanFilter& tracker, int mode)
+std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, LaneKalmanFilter& tracker, int left_mode, int right_mode)
 {
     std::vector<LaneDescriptor> result;
     static const int IMAGE_CENTER = 120;
@@ -61,8 +61,8 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
     static const double ANGLE_THRESHOLD = 0.5;
     static const double POSITION_WEIGHT = 0.7;
     static const double ANGLE_WEIGHT = 0.3;
-    static const double MIN_SCORE_THRESHOLD = 0.6;
-    static const int MATCH_THRESHOLD = 40;
+    static const double MIN_SCORE_THRESHOLD = 0.5;
+    static const int MATCH_THRESHOLD = 45;
 
     // Precompute candidates if lanes are not empty
     std::vector<ClusterDescriptor> left_candidates;
@@ -86,31 +86,38 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             });
     }
 
-    // Handle mode: RECHECK and RESET
+    // Handle modes independently for left and right
     bool reset_left = false;
     bool reset_right = false;
-    if (mode == RECHECK) {
-        if (!lanes.empty()) {
-            if (tracker.left_initialized && !left_candidates.empty()) {
-                float current_left_x = tracker.kf_left.statePost.at<float>(0);
-                float candidate_left_x = left_candidates[0].peakX;
-                if (std::abs(candidate_left_x - current_left_x) > 40) {
-                    reset_left = true;
-                }
-            }
-            if (tracker.right_initialized && !right_candidates.empty()) {
-                float current_right_x = tracker.kf_right.statePost.at<float>(0);
-                float candidate_right_x = right_candidates[0].peakX;
-                if (std::abs(candidate_right_x - current_right_x) > 40) {
-                    reset_right = true;
-                }
+
+    // Left lane mode handling
+    if (left_mode == RECHECK) {
+        if (!lanes.empty() && tracker.left_initialized && !left_candidates.empty()) {
+            float current_left_x = tracker.kf_left.statePost.at<float>(0);
+            float candidate_left_x = left_candidates[0].peakX;
+            if (std::abs(candidate_left_x - current_left_x) > 40) {
+                reset_left = true;
             }
         }
     }
-    else if (mode == RESET) {
+    else if (left_mode == RESET) {
         reset_left = true;
+    }
+
+    // Right lane mode handling  
+    if (right_mode == RECHECK) {
+        if (!lanes.empty() && tracker.right_initialized && !right_candidates.empty()) {
+            float current_right_x = tracker.kf_right.statePost.at<float>(0);
+            float candidate_right_x = right_candidates[0].peakX;
+            if (std::abs(candidate_right_x - current_right_x) > 40) {
+                reset_right = true;
+            }
+        }
+    }
+    else if (right_mode == RESET) {
         reset_right = true;
     }
+
     if (reset_left) {
         tracker.left_initialized = false;
     }
@@ -118,7 +125,11 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         tracker.right_initialized = false;
     }
 
-    // Original logic
+    // 其余代码保持不变...
+    // [原函数中从 "Original logic" 开始到函数结束的所有代码保持不变]
+    // 这里为了简洁省略重复代码，实际使用时需要将原函数的剩余部分完整复制过来
+
+    // 复制原函数中从 "Original logic" 开始的所有代码...
     if (lanes.empty()) {
         LaneDescriptor left_lane, right_lane;
         if (tracker.left_initialized) {
@@ -526,7 +537,8 @@ WorldSnapshot World::dataSync()
     };
 
     //融合/滤波，snap 的字段上算，算完 return
-    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, DEFAULT);
+	filterLanes(snap.lanes, 60.0);
+    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, DEFAULT, DEFAULT);
 	LaneDescriptor middleDescriptor = getMiddleLane(tracked_lanes);
 	snap.dX = (int)(middleDescriptor.peakX);
 	snap.dAngle = (float)(middleDescriptor.mainAngle);

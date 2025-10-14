@@ -10,6 +10,7 @@ struct ClusterDescriptor
 
 std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes);
 void drawClusterLines(cv::Mat& frame, const std::vector<ClusterDescriptor>& descriptors);
+void filterLanes(std::vector<ClusterDescriptor>& lanes, double maxAngleThreshold);
 
 #define REFERENCE_Y 60
 
