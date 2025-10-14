@@ -90,7 +90,7 @@ void bgrToYUYV(const cv::Mat& bgr, cv::Mat& yuyv) {
 }
 
 // 全局虚拟摄像头实例
-static VirtualCamera vcam("/dev/video20", 640, 480);
+static VirtualCamera vcam("/dev/video30", 640, 480);
 
 void imshow_self(const cv::Mat& frame) {
     static cv::Mat resized_frame, yuyv_frame;
@@ -103,3 +103,4 @@ void imshow_self(const cv::Mat& frame) {
     vcam.writeFrame(yuyv_frame);
 }
 #endif
+

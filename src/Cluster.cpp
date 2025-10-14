@@ -102,60 +102,77 @@ void drawClusterLines(cv::Mat& frame, const std::vector<ClusterDescriptor>& desc
 {
     int frameHeight = frame.rows;
     int frameWidth = frame.cols;
+
+    // 裁剪参数
+    const double cropStartRatio = 2.0 / 5.0;
+    const double cropEndRatio = 5.0 / 6.0;
+    int cropStartY = cvRound(frameHeight * cropStartRatio);
+    int cropHeight = cvRound(frameHeight * cropEndRatio) - cropStartY;
+
     const int clusterWidth = 240;
     const int clusterHeight = 120;
-    double scaleX = static_cast<double>(frameWidth) / clusterWidth;
-    double scaleY = static_cast<double>(frameHeight) / clusterHeight;
 
-    int referenceY = cvRound(60 * scaleY);
-    int startY = frameHeight - 1;  // 底部
-    int endY = frameHeight / 4;    // 离顶部1/4距离
+    // 从小图到原图的缩放比例
+    double scaleX = static_cast<double>(frameWidth) / clusterWidth;
+    double scaleY = static_cast<double>(cropHeight) / clusterHeight;
+
+    // 参考点映射（小图y=60对应裁剪区域中心）
+    int referenceY = cvRound(60 * scaleY) + cropStartY;
+
+    int startY = frameHeight - 1;
+    int endY = frameHeight*2 / 5;
 
     cv::Scalar greenColor(0, 255, 0);
     int thickness = 7;
 
     for (const auto& descriptor : descriptors) {
         double peakX_scaled = descriptor.peakX * scaleX;
-        double slope = std::tan(descriptor.mainAngle);
+
+        // 调整斜率计算，考虑y方向的缩放
+        double slope = std::tan(descriptor.mainAngle) * (scaleY / scaleX);
 
         std::vector<cv::Point> linePoints;
+
         auto calculateX = [&](int y) -> double {
             return peakX_scaled + (y - referenceY) / slope;
             };
+
         auto calculateY = [&](int x) -> double {
             return referenceY + slope * (x - peakX_scaled);
             };
+
         double bottomX = calculateX(startY);
         if (bottomX >= 0 && bottomX <= frameWidth - 1) {
             linePoints.emplace_back(cvRound(bottomX), startY);
         }
+
         double topX = calculateX(endY);
         if (topX >= 0 && topX <= frameWidth - 1) {
             linePoints.emplace_back(cvRound(topX), endY);
         }
+
         double leftY = calculateY(0);
         if (leftY >= endY && leftY <= startY) {
             linePoints.emplace_back(0, cvRound(leftY));
         }
+
         double rightY = calculateY(frameWidth - 1);
         if (rightY >= endY && rightY <= startY) {
             linePoints.emplace_back(frameWidth - 1, cvRound(rightY));
         }
+
         if (linePoints.size() >= 2) {
             std::sort(linePoints.begin(), linePoints.end(),
                 [](const cv::Point& a, const cv::Point& b) {
-                    return a.y > b.y; // 降序，y大的在前（底部）
+                    return a.y > b.y;
                 });
             cv::Point bottomPoint = linePoints[0];
             cv::Point topPoint = linePoints.back();
+
             if (bottomPoint.y > topPoint.y) {
                 cv::line(frame, bottomPoint, topPoint, greenColor, thickness);
                 cv::circle(frame, cv::Point(cvRound(peakX_scaled), referenceY),
                     3, cv::Scalar(255, 0, 0), -1);
-
-                // 可选：标记端点，用于调试
-                cv::circle(frame, bottomPoint, 3, cv::Scalar(0, 0, 255), -1);
-                cv::circle(frame, topPoint, 3, cv::Scalar(0, 255, 255), -1);
             }
         }
     }
@@ -167,7 +184,7 @@ void drawClusterLines(cv::Mat& frame, const std::vector<ClusterDescriptor>& desc
 std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes)
 {
     int referenceY = REFERENCE_Y; // 水平线交点参考线
-    float kTreshold = 0.5f; // 水平线斜率阈值
+    float kTreshold = 0.2f; // 水平线斜率阈值
     std::vector<int> crossPointX; // 存储每个线段的水平交点
     std::vector<int> lineLengths; // 存储每个线段的长度
     crossPointX.reserve(100);
