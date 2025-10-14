@@ -129,15 +129,17 @@ FDEF_Result FDEF(const cv::Mat& gray, float weight = 7.f)
 /// @return 原始直线组结果
 std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 {
-    cv::Mat gray;
+    cv::Mat gray,blurred;
     cv::cvtColor(processed_img, gray, cv::COLOR_BGR2GRAY);
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(1.7, cv::Size(5, 2));
     clahe->apply(gray, gray);
     cv::Mat mask = gray < 150;
     gray.setTo(150, mask);
     clahe->apply(gray, gray);
-    cv::GaussianBlur(gray, gray, cv::Size(3, 3), 0);  // 5x5核， sigma=1.5
-    FDEF_Result edges = FDEF(gray);
+    blurred = fastGuidedFilter_2(gray, gray, 12, 0.02, 2);
+    //FastGuidedFilter(gray, gray, blurred, 12, 0.02, 2);
+    //cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 1.5);  // 5x5核， sigma=1.5
+    FDEF_Result edges = FDEF(blurred);
     // 处理sVert：使用双阈值法
     double maxValVert;
     cv::minMaxLoc(edges.sVert, nullptr, &maxValVert);
@@ -200,6 +202,7 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 
     // 6. 显示
     cv::imshow("Bird-Eye View", canvas);
+	cv::imshow("blurred", blurred);
     cv::imshow("raw", img_with_lanes);
     cv::imshow("edge", edges.sDiag);
     cv::imshow("edgeY", edges.sVert);
@@ -254,6 +257,11 @@ void Lane_init(void)
 }
 
 //长度为6的数组：{L_min, L_max, a_min, a_max, b_min, b_max}
+
+/// @brief 该函数不能使用，已被弃用
+/// @param bgr 
+/// @param th 
+/// @return 
 cv::Mat labGetBlob(const cv::Mat& bgr, const int th[6])
 {
     cv::Mat lab;
@@ -270,4 +278,115 @@ cv::Mat labGetBlob(const cv::Mat& bgr, const int th[6])
     cv::Mat singleMask = channels[0] & channels[1] & channels[2];
 
     return singleMask;
+}
+
+/// @brief 快速导向滤波 - 来自知乎大哥的回答，不知道好用不好用，以下注释都是ai写的
+/// @param srcImage 输入图像（单通道）
+/// @param guidedImage 引导图像（单通道）
+/// @param outputImage 输出图像
+/// @param filterSize 滤波半径（在原图尺度）
+/// @param eps 正则化参数，控制平滑程度（值越小边缘保持越强）
+/// @param samplingRate 下采样率，用于加速计算（1=不加速，2=长宽各减半）
+void FastGuidedFilter(cv::Mat& srcImage, cv::Mat& guidedImage, cv::Mat& outputImage, int filterSize, double eps, int samplingRate)
+{
+    try
+    {
+        if (srcImage.empty() || guidedImage.empty() || filterSize <= 0 || eps < 0 ||
+            srcImage.channels() != 1 || guidedImage.channels() != 1 || samplingRate < 1)
+        {
+            throw "params input error";
+        }
+
+        // 确保下采样后的filterSize至少为1
+        int downsampledFilterSize = std::max(1, filterSize / samplingRate);
+
+        cv::Mat srcImageP, srcImageSubI, srcImageI, meanP, meanI, meanIP, meanII, var, alfa, beta;
+
+        // 下采样
+        cv::resize(srcImage, srcImageP, cv::Size(srcImage.cols / samplingRate, srcImage.rows / samplingRate));
+        cv::resize(guidedImage, srcImageSubI, cv::Size(srcImage.cols / samplingRate, srcImage.rows / samplingRate));
+
+        // 转换为浮点并归一化到[0,1]
+        srcImageP.convertTo(srcImageP, CV_32FC1, 1.0 / 255.0);
+        guidedImage.convertTo(srcImageI, CV_32FC1, 1.0 / 255.0);
+        srcImageSubI.convertTo(srcImageSubI, CV_32FC1, 1.0 / 255.0);
+
+        // 导向滤波计算
+        cv::boxFilter(srcImageP, meanP, CV_32FC1, cv::Size(downsampledFilterSize, downsampledFilterSize));
+        cv::boxFilter(srcImageSubI, meanI, CV_32FC1, cv::Size(downsampledFilterSize, downsampledFilterSize));
+        cv::boxFilter(srcImageSubI.mul(srcImageP), meanIP, CV_32FC1, cv::Size(downsampledFilterSize, downsampledFilterSize));
+        cv::boxFilter(srcImageSubI.mul(srcImageSubI), meanII, CV_32FC1, cv::Size(downsampledFilterSize, downsampledFilterSize));
+
+        var = meanII - meanI.mul(meanI);
+        alfa = (meanIP - meanI.mul(meanP)) / (var + eps);
+        beta = meanP - alfa.mul(meanI);
+
+        cv::boxFilter(alfa, alfa, CV_32FC1, cv::Size(downsampledFilterSize, downsampledFilterSize));
+        cv::boxFilter(beta, beta, CV_32FC1, cv::Size(downsampledFilterSize, downsampledFilterSize));
+
+        cv::resize(alfa, alfa, srcImage.size());
+        cv::resize(beta, beta, srcImage.size());
+
+        outputImage = alfa.mul(srcImageI) + beta;
+
+        // 关键修复：将输出转换回0-255的uchar类型
+        outputImage.convertTo(outputImage, CV_8UC1, 255.0);
+    }
+    catch (cv::Exception& e)
+    {
+        throw e;
+    }
+    catch (std::exception& e)
+    {
+        throw e;
+    }
+}
+
+/// @brief CSDN大哥的实现，具体参考上一个函数实现
+/// opencv官方的接口需要contrib，win端的opencv没下这个包
+/// @param I_org 输入图像
+/// @param p_org 引导图像
+/// @param r 滤波半径
+/// @param eps 正则化参数
+/// @param s 下采样率
+/// @return 
+cv::Mat fastGuidedFilter_2(cv::Mat I_org, cv::Mat p_org, int r, double eps, int s)
+{
+    cv::Mat I, _I;
+    I_org.convertTo(_I, CV_64FC1, 1.0 / 255);
+    resize(_I, I, cv::Size(), 1.0 / s, 1.0 / s, cv::INTER_LINEAR);
+
+    cv::Mat p, _p;
+    p_org.convertTo(_p, CV_64FC1, 1.0 / 255);
+    resize(_p, p, cv::Size(), 1.0 / s, 1.0 / s, cv::INTER_LINEAR);
+
+    // 调整半径
+    r = (2 * r + 1) / s + 1;
+
+    cv::Mat mean_I, mean_p, mean_Ip, mean_II;
+    cv::boxFilter(I, mean_I, CV_64FC1, cv::Size(r, r));
+    cv::boxFilter(p, mean_p, CV_64FC1, cv::Size(r, r));
+    cv::boxFilter(I.mul(p), mean_Ip, CV_64FC1, cv::Size(r, r));
+    cv::boxFilter(I.mul(I), mean_II, CV_64FC1, cv::Size(r, r));
+
+    cv::Mat cov_Ip = mean_Ip - mean_I.mul(mean_p);
+    cv::Mat var_I = mean_II - mean_I.mul(mean_I);
+    cv::Mat a = cov_Ip / (var_I + eps);
+    cv::Mat b = mean_p - a.mul(mean_I);
+
+    cv::Mat mean_a, mean_b;
+    cv::boxFilter(a, mean_a, CV_64FC1, cv::Size(r, r));
+    cv::boxFilter(b, mean_b, CV_64FC1, cv::Size(r, r));
+
+    cv::Mat rmean_a, rmean_b;
+    resize(mean_a, rmean_a, I_org.size(), 0, 0, cv::INTER_LINEAR);
+    resize(mean_b, rmean_b, I_org.size(), 0, 0, cv::INTER_LINEAR);
+
+    cv::Mat q = rmean_a.mul(_I) + rmean_b;
+
+    // 可选：转换回8UC1用于显示
+    cv::Mat result;
+    q.convertTo(result, CV_8UC1, 255.0);
+
+    return result;  // 或者返回 q 保持浮点精度
 }

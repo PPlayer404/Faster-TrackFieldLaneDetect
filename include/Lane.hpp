@@ -24,5 +24,7 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV);
 cv::Mat color_correction(const cv::Mat& frame);
 void Lane_init(void);
 cv::Mat labGetBlob(const cv::Mat& bgr, const int th[6]);
+void FastGuidedFilter(cv::Mat& srcImage, cv::Mat& guidedImage, cv::Mat& outputImage, int filterSize, double eps, int samplingRate);
+cv::Mat fastGuidedFilter_2(cv::Mat I_org, cv::Mat p_org, int r, double eps, int s);
 
 #endif
