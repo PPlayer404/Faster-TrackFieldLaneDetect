@@ -55,13 +55,14 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
 {
     std::vector<LaneDescriptor> result;
     static const int IMAGE_CENTER = 120;
-    static const int MAX_LANE_WIDTH = 100;
-    static const int MIN_LANE_WIDTH = 40;
+    static const int MAX_LANE_WIDTH = 230;
+    static const int MIN_LANE_WIDTH = 150;
     static const float VELOCITY_DECAY = 0.6f;
     static const double ANGLE_THRESHOLD = 0.5;
     static const double POSITION_WEIGHT = 0.7;
     static const double ANGLE_WEIGHT = 0.3;
-    static const double MIN_SCORE_THRESHOLD = 0.5;
+    static const double MIN_SCORE_THRESHOLD = 0.6;
+    static const int MATCH_THRESHOLD = 40;
 
     // Precompute candidates if lanes are not empty
     std::vector<ClusterDescriptor> left_candidates;
@@ -162,7 +163,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
 
     int left_index = -1, right_index = -1;
     LaneDescriptor left_lane, right_lane;
-    const int MATCH_THRESHOLD = 30;
 
     if (tracker.left_initialized) {
         float best_score = -1;
@@ -325,14 +325,14 @@ LaneDescriptor getMiddleLane(std::vector<LaneDescriptor>& lanes)
     constexpr int REF_Y = 60;
     constexpr int CTR_X = IMG_W / 2;
     constexpr int BOTTOM_Y = IMG_H - 1;
-    constexpr double OFFSET_DIST = 36.0;
+    constexpr double OFFSET_DIST = 50.0;
 
     static LaneDescriptor lastMiddleLane = { 0, 0 };
 
     static cv::Mat ipm_mat = (cv::Mat_<double>(3, 3) <<
-        4.000000, 4.200000, -312.000000,
-        0.000000, 5.600000, -0.000000,
-        0.000000, 0.038333, 1.000000
+        4.000000, 10.266667, -312.000000,
+        0.000000, 41.833333, -120.000000,
+        0.000000, 0.088889, 1.000000
         );
     static cv::Mat ipm_mat_inv;
     static bool initialized = false;
@@ -435,18 +435,27 @@ void drawMiddleLines(cv::Mat& frame, float angle, int dX)
     int h = frame.rows;
     int w = frame.cols;
 
-    // 计算缩放比例
+    // 裁剪参数
+    const double cropStartRatio = 2.0 / 5.0;
+    const double cropEndRatio = 5.0 / 6.0;
+    int cropStartY = cvRound(h * cropStartRatio);
+    int cropHeight = cvRound(h * cropEndRatio) - cropStartY;
+
+    // 缩放比例
     float scaleX = w / 240.0f;
-    float scaleY = h / 120.0f;
+    float scaleY = cropHeight / 120.0f;
 
-    // 底部中心点（相对于原240x120图像的坐标系）
-    int bottomCenterX = w / 2 + dX * scaleX;
-    int bottomY = h - 1;
+    // 小图底部中心映射到原图
+    int bottomCenterX = w / 2;
+    int bottomY = cropStartY + cropHeight - 1;
 
-    // 计算线段长度（从底部到顶部1/4）
-    int lineLength = h / 4 * 3;
+    // 应用偏移量dX（小图底部的x偏移）
+    bottomCenterX += dX * scaleX;
 
-    // 计算终点坐标
+    // 计算线段长度
+    int lineLength = h / 5*2;
+
+    // 计算终点坐标（调整斜率计算）
     int topX = bottomCenterX - lineLength * std::tan(angle) * (scaleX / scaleY);
     int topY = bottomY - lineLength;
 
@@ -454,7 +463,7 @@ void drawMiddleLines(cv::Mat& frame, float angle, int dX)
     cv::line(frame,
         cv::Point(bottomCenterX, bottomY),
         cv::Point(topX, topY),
-        cv::Scalar(0, 0, 255),  // 绿色
+        cv::Scalar(0, 0, 255),
         8);
 }
 

@@ -166,26 +166,45 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
     Lanes.insert(Lanes.end(), lines45.begin(), lines45.end());
 
 #ifdef WITH_IMSHOW
-    //绘制
+    // 1. 画车道线
     cv::Mat img_with_lanes = processed_img.clone();
     for (const auto& l : Lanes)
-        cv::line(img_with_lanes,
-            cv::Point(l[0], l[1]),
-            cv::Point(l[2], l[3]),
-            cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
+        cv::line(img_with_lanes, cv::Point(l[0], l[1]),
+            cv::Point(l[2], l[3]), cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
+
+    // 2. 原始逆透视矩阵
     cv::Mat H = (cv::Mat_<double>(3, 3) <<
-        2.500000, 2.500000, -180.000000,
-        -0.000000, 3.500000, 0.000000,
-        -0.000000, 0.020833, 1.000000
+        4.000000, 10.266667, -312.000000,
+        0.000000, 41.833333, -120.000000,
+        0.000000, 0.088889, 1.000000
         );
-    cv::Mat birdEye;
-    cv::warpPerspective(img_with_lanes, birdEye, H, cv::Size(240, 240));
-    cv::imshow("Bird-Eye View", birdEye);
+
+    // 3. 构造“画布居中”平移矩阵
+    int canvas_size = 640;
+    int roi_w = 240, roi_h = 240;               // 想要保留的 ROI 尺寸
+    int offset_x = (canvas_size - roi_w) / 2;   // ROI 在画布上的左上角
+    int offset_y = (canvas_size - roi_h) / 2;
+    cv::Mat T = (cv::Mat_<double>(3, 3) <<
+        1, 0, offset_x,
+        0, 1, offset_y,
+        0, 0, 1);
+
+    // 4. 新的单应：先平移再执行原 H
+    cv::Mat H_new = T * H;
+
+    // 5. 一次 warp 到 640×640 画布
+    cv::Mat canvas;
+    cv::warpPerspective(img_with_lanes, canvas, H_new,
+        cv::Size(canvas_size, canvas_size),
+        cv::INTER_LINEAR, cv::BORDER_CONSTANT, 0);
+
+    // 6. 显示
+    cv::imshow("Bird-Eye View", canvas);
+    cv::imshow("raw", img_with_lanes);
     cv::imshow("edge", edges.sDiag);
     cv::imshow("edgeY", edges.sVert);
-	cv::waitKey(1);
+    cv::waitKey(1);
 #endif
-
     return Lanes;
 }
 

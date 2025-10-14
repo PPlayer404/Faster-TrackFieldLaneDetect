@@ -12,6 +12,10 @@
 #include <cstdint>
 #include "Retrans.hpp"
 #include "World.hpp"
+#include <string>       // 用于std::string操作
+#ifdef _WIN32
+#include <windows.h>    // 用于GetFileAttributesA等Windows API
+#endif
 
 /// @brief 保证帧读取和分发双缓冲安全，读写锁
 std::shared_mutex ReadFreamMutex;
@@ -29,10 +33,14 @@ void frameReader()
 {
     uint64_t frameId = 0;
 #ifdef _WIN32
-    cv::VideoCapture cap("img/example.mp4");
-    if (!cap.isOpened())
-    {
-        std::cerr << "无法打开视频\n";
+    // Windows环境下从图片路径读取图片
+    std::string imgPath = "E:/img/imgs/img7/";  // 修改为正确的路径分隔符
+    int imgIndex = 1;
+
+    // 检查路径是否存在
+    DWORD fileAttr = GetFileAttributesA(imgPath.c_str());
+    if (fileAttr == INVALID_FILE_ATTRIBUTES || !(fileAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+        std::cerr << "无法找到图片路径: " << imgPath << "\n";
         return;
     }
 #else
@@ -49,27 +57,46 @@ void frameReader()
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
     cap.set(cv::CAP_PROP_FPS, 30);
     cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
-
 #endif
+
     cv::Mat frame, processedFrame, tinyImg;
     while (1)
     {
 #ifdef DEBUG
-        delay_ms(50);
+        delay_ms(20);
 #endif
-        cap >> frame;
+
 #ifdef _WIN32
+        std::string imgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
+        frame = cv::imread(imgFile);
+        // 如果图片不存在，重置到第一张
         if (frame.empty()) {
-            //重置视频读取指针到开始位置
-            cap.set(cv::CAP_PROP_POS_FRAMES, 0);
+            imgIndex = 1;
+            imgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
+            frame = cv::imread(imgFile);
+        }
+        // 递增图片索引，准备读取下一张
+        imgIndex++;
+        // 如果下一张图片不存在，重置索引（循环播放）
+        std::string nextImgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
+        if (!cv::imread(nextImgFile).data) {
+            imgIndex = 1;
+        }
+#else
+        cap >> frame;
+        if (frame.empty()) {
+            std::cerr << "无法从摄像头读取帧\n";
             continue;
         }
 #endif
         frameId++;
-        //int startRow = frame.rows / 2;
-        //cv::Mat halfImg = frame(cv::Rect(0, startRow, frame.cols, frame.rows - startRow));
-        cv::resize(frame, tinyImg, cv::Size(240, 120), 0, 0, cv::INTER_AREA);
+        // 保持原有的图像处理逻辑不变
+        int startRow = frame.rows*2 / 5;  // 上1/2的起始位置
+        int endRow = frame.rows * 5 / 6;  // 下1/6的起始位置
+        cv::Mat halfImg = frame(cv::Rect(0, startRow, frame.cols, endRow - startRow));
+        cv::resize(halfImg, tinyImg, cv::Size(240, 120), 0, 0, cv::INTER_AREA);
         processedFrame = color_correction(tinyImg);
+
         {
             std::unique_lock<std::shared_mutex> lock(ReadFreamMutex);
             CoreFrameData[!current_read_id].rawFrame = frame;
