@@ -381,4 +381,62 @@ std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes)
     return descriptors;
 }
 
+/// @brief 利用逆透视结果进行角度过滤
+/// @param lanes 要过滤的车道线簇描述子
+/// @param maxAngleThreshold 与垂直方向的最大夹角阈值，单位为度，默认45度
+void filterLanes(std::vector<ClusterDescriptor>& lanes, double maxAngleThreshold = 45.0)
+{
+    static cv::Mat ipm_mat = (cv::Mat_<double>(3, 3) <<
+        4.000000, 10.266667, -312.000000,
+        0.000000, 41.833333, -120.000000,
+        0.000000, 0.088889, 1.000000
+        );
 
+    constexpr int IMG_H = 120;
+    constexpr int REF_Y = 60;
+    constexpr int BOTTOM_Y = IMG_H - 1;
+
+    double maxAngleRad = maxAngleThreshold * CV_PI / 180.0;
+
+    if (lanes.empty()) return;
+
+    std::vector<int> indicesToRemove;
+
+    for (size_t i = 0; i < lanes.size(); ++i) {
+        auto& lane = lanes[i];
+
+        double tanAngle = std::tan(lane.mainAngle);
+        if (std::abs(tanAngle) < 1e-4) {
+            tanAngle = (lane.mainAngle >= 0) ? 1e-4 : -1e-4;
+        }
+
+        cv::Point2d p1_img(lane.peakX, REF_Y);
+        cv::Point2d p2_img(lane.peakX + (BOTTOM_Y - REF_Y) / tanAngle, BOTTOM_Y);
+
+        std::vector<cv::Point2d> img_points = { p1_img, p2_img };
+        std::vector<cv::Point2d> bev_points;
+        cv::perspectiveTransform(img_points, bev_points, ipm_mat);
+
+        cv::Point2d dir_bev = bev_points[1] - bev_points[0];
+        double length = std::sqrt(dir_bev.x * dir_bev.x + dir_bev.y * dir_bev.y);
+
+        if (length < 1e-4) {
+            indicesToRemove.push_back(i);
+            continue;
+        }
+
+        // 计算与水平方向的夹角
+        double angle = std::abs(std::atan2(dir_bev.y, dir_bev.x));
+
+        // 如果角度小于阈值，说明过于水平，需要过滤
+        if (angle < maxAngleRad) {
+            indicesToRemove.push_back(i);
+        }
+    }
+
+    for (auto it = indicesToRemove.rbegin(); it != indicesToRemove.rend(); ++it) {
+        if (*it < lanes.size()) {
+            lanes.erase(lanes.begin() + *it);
+        }
+    }
+}

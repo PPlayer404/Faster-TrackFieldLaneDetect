@@ -390,3 +390,4 @@ cv::Mat fastGuidedFilter_2(cv::Mat I_org, cv::Mat p_org, int r, double eps, int 
 
     return result;  // 或者返回 q 保持浮点精度
 }
+
