@@ -68,6 +68,12 @@
     <ClInclude Include="include\World.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="D:\soft work\guidedFilter.hpp">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\guidedFilter.hpp">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Media Include="img\example.mp4" />
