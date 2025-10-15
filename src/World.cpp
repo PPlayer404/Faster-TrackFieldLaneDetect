@@ -27,20 +27,23 @@ struct LaneKalmanFilter
     int last_right_x;
 
     LaneKalmanFilter() : left_initialized(false), right_initialized(false),
-        last_left_angle(0), last_right_angle(0), last_left_x(0), last_right_x(0) {
-        kf_left.init(2, 1, 0);
-        kf_left.transitionMatrix = (cv::Mat_<float>(2, 2) << 1, 1, 0, 1);
-        kf_left.measurementMatrix = (cv::Mat_<float>(1, 2) << 1, 0);
-        cv::setIdentity(kf_left.processNoiseCov, cv::Scalar::all(1e-2));
-        cv::setIdentity(kf_left.measurementNoiseCov, cv::Scalar::all(1e-1));
-        cv::setIdentity(kf_left.errorCovPost, cv::Scalar::all(1));
+        last_left_angle(0), last_right_angle(0),
+        last_left_x(0), last_right_x(0) {
+        const float R = 3.0f;          // 测量方差 ≈ 1.7 pixel σ
+        const float Qp = 1.0f;          // 位置过程噪声
+        const float Qv = 40.0f;         // 速度过程噪声
+        const float P0 = 5.0f;          // 初始不确定度
 
-        kf_right.init(2, 1, 0);
-        kf_right.transitionMatrix = (cv::Mat_<float>(2, 2) << 1, 1, 0, 1);
-        kf_right.measurementMatrix = (cv::Mat_<float>(1, 2) << 1, 0);
-        cv::setIdentity(kf_right.processNoiseCov, cv::Scalar::all(1e-2));
-        cv::setIdentity(kf_right.measurementNoiseCov, cv::Scalar::all(1e-1));
-        cv::setIdentity(kf_right.errorCovPost, cv::Scalar::all(1));
+        for (auto kf : { &kf_left, &kf_right }) {
+            kf->init(2, 1, 0);
+            kf->transitionMatrix = (cv::Mat_<float>(2, 2) << 1, 1, 0, 1);
+            kf->measurementMatrix = (cv::Mat_<float>(1, 2) << 1, 0);
+            cv::setIdentity(kf->processNoiseCov, cv::Scalar(0.0f));
+            kf->processNoiseCov.at<float>(0, 0) = Qp;
+            kf->processNoiseCov.at<float>(1, 1) = Qv;
+            cv::setIdentity(kf->measurementNoiseCov, cv::Scalar(R));
+            cv::setIdentity(kf->errorCovPost, cv::Scalar(P0));
+        }
     }
 };
 
@@ -57,7 +60,7 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
     static const int IMAGE_CENTER = 120;
     static const int MAX_LANE_WIDTH = 230;
     static const int MIN_LANE_WIDTH = 150;
-    static const float VELOCITY_DECAY = 0.6f;
+    static const float VELOCITY_DECAY = 0.2f;
     static const double ANGLE_THRESHOLD = 0.5;
     static const double POSITION_WEIGHT = 0.7;
     static const double ANGLE_WEIGHT = 0.3;
