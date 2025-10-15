@@ -55,24 +55,24 @@ FDEF_Result FDEF(const cv::Mat& gray, float weight = 7.f)
     // 创建45度核
     cv::Mat kernel_45 = (cv::Mat_<float>(5, 5) <<
          0,  1,  1,  1,  1,
-        -1,  0,  1,  1,  1,
-        -1, -1,  0,  1,  1,
-        -1, -1, -1,  0,  1,
+        -1,  0,  3,  2,  1,
+        -1, -3,  0,  3,  1,
+        -1, -2, -3,  0,  1,
         -1, -1, -1, -1,  0);
 
     // 创建135度核
     cv::Mat kernel_135 = (cv::Mat_<float>(5, 5) <<
         -1, -1, -1, -1,  0,
-        -1, -1, -1,  0,  1,
-        -1, -1,  0,  1,  1,
-        -1,  0,  1,  1,  1,
+        -1, -2, -3,  0,  1,
+        -1, -3,  0,  3,  1,
+        -1,  0,  3,  2,  1,
          0,  1,  1,  1,  1);
 
     cv::Mat kernel_90 = (cv::Mat_<float>(5, 5) <<
         -1, -1,  0,  1,  1,
-        -1, -1,  0,  1,  1,
-        -1, -1,  0,  1,  1,
-        -1, -1,  0,  1,  1,
+        -1, -2,  0,  2,  1,
+        -1, -3,  0,  3,  1,
+        -1, -2,  0,  2,  1,
         -1, -1,  0,  1,  1);
 
     // 应用滤波器
@@ -129,27 +129,24 @@ FDEF_Result FDEF(const cv::Mat& gray, float weight = 7.f)
 /// @return 原始直线组结果
 std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 {
-    cv::Mat gray,blurred;
+    cv::Mat blurred, gray, blurred_1;
     cv::cvtColor(processed_img, gray, cv::COLOR_BGR2GRAY);
-    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(1.7, cv::Size(5, 2));
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(1.7, cv::Size(4, 2));
     clahe->apply(gray, gray);
     cv::Mat mask = gray < 150;
     gray.setTo(150, mask);
     clahe->apply(gray, gray);
-    blurred = fastGuidedFilter_2(gray, gray, 12, 0.02, 2);
+    cv::GaussianBlur(gray, blurred_1, cv::Size(3, 3), 1.0);
+    blurred = fastGuidedFilter_2(gray, blurred_1, 12, 0.02, 2);
     //FastGuidedFilter(gray, gray, blurred, 12, 0.02, 2);
     //cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 1.5);  // 5x5核， sigma=1.5
     FDEF_Result edges = FDEF(blurred);
     // 处理sVert：使用双阈值法
-    double maxValVert;
-    cv::minMaxLoc(edges.sVert, nullptr, &maxValVert);
     // 使用优化的双阈值实现
-    optimizedDoubleThreshold(edges.sVert, 0.86, 0.6);
+    optimizedDoubleThreshold(edges.sVert, 0.8, 0.6);
 
     // 处理sDiag：同样逻辑
-    double maxValDiag;
-    cv::minMaxLoc(edges.sDiag, nullptr, &maxValDiag);
-    optimizedDoubleThreshold(edges.sDiag, 0.86, 0.6);
+    optimizedDoubleThreshold(edges.sDiag, 0.8, 0.6);
 
     /*-------------  进度条参数实时读取 -------------*/
     double r = LaneTB::rho;
