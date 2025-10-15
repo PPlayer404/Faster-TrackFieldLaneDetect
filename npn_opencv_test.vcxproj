@@ -157,7 +157,9 @@
     <Text Include="Readme.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="D:\soft work\guidedFilter.hpp" />
     <ClInclude Include="include\Cluster.hpp" />
+    <ClInclude Include="include\guidedFilter.hpp" />
     <ClInclude Include="include\hardware.hpp" />
     <ClInclude Include="include\Lane.hpp" />
     <ClInclude Include="include\mode.hpp" />
