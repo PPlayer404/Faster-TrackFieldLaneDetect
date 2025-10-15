@@ -336,7 +336,7 @@ LaneDescriptor getMiddleLane(std::vector<LaneDescriptor>& lanes)
     constexpr int REF_Y = 60;
     constexpr int CTR_X = IMG_W / 2;
     constexpr int BOTTOM_Y = IMG_H - 1;
-    constexpr double OFFSET_DIST = 50.0;
+    constexpr double OFFSET_DIST = 60.0;
 
     static LaneDescriptor lastMiddleLane = { 0, 0 };
 
