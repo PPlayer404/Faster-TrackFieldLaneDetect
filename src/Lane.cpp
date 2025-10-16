@@ -131,6 +131,9 @@ FDEF_Result FDEF(const cv::Mat& gray, float weight = 7.f)
 std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 {
     cv::Mat blurred, gray, blurred_1;
+    //cv::Mat gray_custom;
+    //cv::transform(processed_img, gray_custom, cv::Matx13f(1, 0.0, 0.0)); // -R + G + B
+    //cv::normalize(gray_custom, gray, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     cv::cvtColor(processed_img, gray, cv::COLOR_BGR2GRAY);
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(1.7, cv::Size(4, 2));
     clahe->apply(gray, gray);
@@ -143,11 +146,8 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
     //FastGuidedFilter(gray, gray, blurred, 12, 0.02, 2);
     //cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 1.5);  // 5x5核， sigma=1.5
     FDEF_Result edges = FDEF(blurred);
-    // 处理sVert：使用双阈值法
-    // 使用优化的双阈值实现
+    // 双阈值法
     optimizedDoubleThreshold(edges.sVert, 0.8, 0.6);
-
-    // 处理sDiag：同样逻辑
     optimizedDoubleThreshold(edges.sDiag, 0.8, 0.6);
 
     /*-------------  进度条参数实时读取 -------------*/
@@ -205,6 +205,7 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
     cv::imshow("raw", img_with_lanes);
     cv::imshow("edge", edges.sDiag);
     cv::imshow("edgeY", edges.sVert);
+	cv::imshow("gray", gray);
     cv::waitKey(1);
 #endif
     return Lanes;
@@ -223,7 +224,7 @@ cv::Mat color_correction(const cv::Mat& frame)
     cv::split(lab, lab_planes);          // lab_planes[0]=L, [1]=a, [2]=b
 
     // CLAHE on L channel
-    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(5, 2));
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(4, 2));
     clahe->apply(lab_planes[0], lab_planes[0]);
 
     // a-channel: a' = clip(a - mean(a) + 128, 0, 255)

@@ -2,10 +2,15 @@
 #include "Cluster.hpp"
 #include "mode.hpp"
 #include <climits>
+#include "ThreadManager.hpp"
 
 #define DEFAULT 0
 #define RECHECK 1
 #define RESET 2
+
+/// @brief 在协程中实现延时，单位毫秒，非阻塞，原理是设置一个定时器，然后协程挂起，等定时器到期后再恢复
+/// 呃，大概吧，我也不是很懂协程，反正能用就行
+#define Coroutine_delay(ms) decision_set_alarm(ms);co_await std::suspend_always{}
 
 struct LaneDescriptor
 {
@@ -514,7 +519,7 @@ World::World()
     bufBack_ = init;
 }
 
-/// @brief 更新维护世界模型，双缓冲 + 计算 + 返回快照
+/// @brief 更新维护世界模型，双缓冲 + 计算 + 返回快照，这个只融合传感器数据和滤波，决策逻辑在协程中
 WorldSnapshot World::dataSync()
 {
     //锁内指针交换
@@ -539,14 +544,35 @@ WorldSnapshot World::dataSync()
         frameId_//frameId
     };
 
-    //融合/滤波，snap 的字段上算，算完 return
+	//融合/滤波，snap 的字段上算，算完 return,这一块负责传感器融合和滤波，由外部事件驱动
 	filterLanes(snap.lanes, 60.0);
     std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, DEFAULT, DEFAULT);
 	LaneDescriptor middleDescriptor = getMiddleLane(tracked_lanes);
 	snap.dX = (int)(middleDescriptor.peakX);
 	snap.dAngle = (float)(middleDescriptor.mainAngle);
-    //stanley();
 
     return snap;  // NRVO/move，读者无锁
+}
+
+/// @brief 决策协程，内部有决策逻辑，通过Coroutine_delay(ms)来延时，这一部分由world线程调度
+/// 负责所有的决策和控制输出，逻辑是被调度之后会一直运行，直到遇到Coroutine_delay(ms)才会挂起，到时间再被调度器唤醒
+/// 非常麻烦，最好不要动外部定义，这个全是kimi弄的，我没能力维护，只改内部逻辑就好了
+/// @return 
+Task decision_coroutine() {
+    while (1)
+    {
+        std::cout << "[CORO] Speed = 0\n";
+        Coroutine_delay(1000);
+
+        std::cout << "[CORO] Speed = 5\n";
+        Coroutine_delay(500);
+
+        std::cout << "[CORO] Speed = 3\n";
+        Coroutine_delay(500);
+
+    returnLoop:
+        std::cout << "[CORO] Finished Or Returned\n";
+        Coroutine_delay(0);
+    }
 }
 

@@ -34,20 +34,23 @@ void frameReader()
     uint64_t frameId = 0;
 #ifdef _WIN32
     // Windows环境下从图片路径读取图片
-    std::string imgPath = "E:/img/imgs/img6/";  // 修改为正确的路径分隔符
+    std::string imgPath = "E:/img/imgs/img7/";  // 修改为正确的路径分隔符
     int imgIndex = 1;
 
     // 检查路径是否存在
     DWORD fileAttr = GetFileAttributesA(imgPath.c_str());
-    if (fileAttr == INVALID_FILE_ATTRIBUTES || !(fileAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+    if (fileAttr == INVALID_FILE_ATTRIBUTES || !(fileAttr & FILE_ATTRIBUTE_DIRECTORY)) 
+    {
         std::cerr << "无法找到图片路径: " << imgPath << "\n";
         return;
     }
 #else
     cv::VideoCapture cap(0, cv::CAP_V4L2);
-    if (!cap.isOpened()) {
+    if (!cap.isOpened()) 
+    {
         cap.open(1, cv::CAP_V4L2);
-        if (!cap.isOpened()) {
+        if (!cap.isOpened()) 
+        {
             std::cerr << "ERROR: can not open camera\n";
             return;
         }
@@ -70,7 +73,8 @@ void frameReader()
         std::string imgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
         frame = cv::imread(imgFile);
         // 如果图片不存在，重置到第一张
-        if (frame.empty()) {
+        if (frame.empty()) 
+        {
             imgIndex = 1;
             imgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
             frame = cv::imread(imgFile);
@@ -79,12 +83,14 @@ void frameReader()
         imgIndex++;
         // 如果下一张图片不存在，重置索引（循环播放）
         std::string nextImgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
-        if (!cv::imread(nextImgFile).data) {
+        if (!cv::imread(nextImgFile).data) 
+        {
             imgIndex = 1;
         }
 #else
         cap >> frame;
-        if (frame.empty()) {
+        if (frame.empty()) 
+        {
             std::cerr << "无法从摄像头读取帧\n";
             continue;
         }
@@ -218,7 +224,11 @@ void worldFuse()
         {
             std::lock_guard<std::mutex> lk(gSnapMutex);
             gSnap = std::move(fresh);   // 整包移动
-        }                               
+        }     
+
+        //调度决策协程，真正的控制逻辑入口
+        if (decision_alarm_ready())
+            decision_resume();
 
         //拿帧。lane线程已经帮忙检查过更新了，直接拿即可
         {
@@ -280,6 +290,7 @@ int main()
 #ifdef WITH_IMSHOW
     Lane_init();
 #endif
+    decision_start();
     std::thread t1(frameReader);
     std::thread t2(laneTracker);
     std::thread t3(YOLO_Run);

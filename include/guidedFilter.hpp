@@ -198,7 +198,6 @@ namespace fgf {
       cv::merge(bgrBlur, out);
     }
   }
-
 }
 
 #endif
