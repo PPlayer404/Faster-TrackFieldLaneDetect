@@ -140,8 +140,8 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
     cv::Mat mask = gray < 150;
     gray.setTo(150, mask);
     clahe->apply(gray, gray);
-    cv::GaussianBlur(gray, blurred_1, cv::Size(3, 3), 1.0);
-    fgf::structureTransference(gray, blurred_1, blurred, 12, 0.02, 2);
+    cv::GaussianBlur(gray, blurred_1, cv::Size(3, 3), 0);
+    fgf::structureTransference(blurred_1, gray, blurred, 12, 0.02, 2);
     /*blurred = fastGuidedFilter_2(gray, blurred_1, 12, 0.02, 2);*/
     //FastGuidedFilter(gray, gray, blurred, 12, 0.02, 2);
     //cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 1.5);  // 5x5核， sigma=1.5

@@ -176,7 +176,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         if (tracker.right_initialized) {
             cv::circle(vis, cv::Point(right_lane.peakX, 60), 5, cv::Scalar(0, 0, 255), -1);
         }
-        cv::imshow("Lane Tracking", vis);
         return result;
     }
 
@@ -556,7 +555,7 @@ WorldSnapshot World::dataSync()
 
 /// @brief 决策协程，内部有决策逻辑，通过Coroutine_delay(ms)来延时，这一部分由world线程调度
 /// 负责所有的决策和控制输出，逻辑是被调度之后会一直运行，直到遇到Coroutine_delay(ms)才会挂起，到时间再被调度器唤醒
-/// 非常麻烦，最好不要动外部定义，这个全是kimi弄的，我没能力维护，只改内部逻辑就好了
+/// 非常麻烦，最好不要动外部定义，这个全是kimi弄的，我没能力维护，只改内部逻辑就好了，必须支持cpp20
 /// @return 
 Task decision_coroutine() {
     while (1)

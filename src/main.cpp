@@ -12,9 +12,9 @@
 #include <cstdint>
 #include "Retrans.hpp"
 #include "World.hpp"
-#include <string>       // 用于std::string操作
+#include <string>
 #ifdef _WIN32
-#include <windows.h>    // 用于GetFileAttributesA等Windows API
+#include <windows.h>
 #endif
 
 /// @brief 保证帧读取和分发双缓冲安全，读写锁
@@ -24,11 +24,12 @@ std::mutex SendFreamMutex;
 /// @brief 保证世界线程唤醒安全
 std::mutex NotifyingMutex;
 std::condition_variable LaneAvailableCondition;
-volatile bool LaneReady = false;
+std::atomic<uint64_t> gNewestFrameId{ 0 };   // 只放最新帧号
 World gWorld;
 WorldSnapshot gSnap;
 std::mutex gSnapMutex;
 
+/// @brief 读取摄像头线程，负责读取摄像头帧并进行预处理
 void frameReader()
 {
     uint64_t frameId = 0;
@@ -39,17 +40,17 @@ void frameReader()
 
     // 检查路径是否存在
     DWORD fileAttr = GetFileAttributesA(imgPath.c_str());
-    if (fileAttr == INVALID_FILE_ATTRIBUTES || !(fileAttr & FILE_ATTRIBUTE_DIRECTORY)) 
+    if (fileAttr == INVALID_FILE_ATTRIBUTES || !(fileAttr & FILE_ATTRIBUTE_DIRECTORY))
     {
         std::cerr << "无法找到图片路径: " << imgPath << "\n";
         return;
     }
 #else
     cv::VideoCapture cap(0, cv::CAP_V4L2);
-    if (!cap.isOpened()) 
+    if (!cap.isOpened())
     {
         cap.open(1, cv::CAP_V4L2);
-        if (!cap.isOpened()) 
+        if (!cap.isOpened())
         {
             std::cerr << "ERROR: can not open camera\n";
             return;
@@ -59,21 +60,21 @@ void frameReader()
     cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
     cap.set(cv::CAP_PROP_FPS, 30);
-    cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
+    cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
 #endif
 
     cv::Mat frame, processedFrame, tinyImg;
     while (1)
     {
 #ifdef DEBUG
-        delay_ms(20);
+        delay_ms(100);
 #endif
 
 #ifdef _WIN32
         std::string imgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
         frame = cv::imread(imgFile);
         // 如果图片不存在，重置到第一张
-        if (frame.empty()) 
+        if (frame.empty())
         {
             imgIndex = 1;
             imgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
@@ -83,13 +84,13 @@ void frameReader()
         imgIndex++;
         // 如果下一张图片不存在，重置索引（循环播放）
         std::string nextImgFile = imgPath + std::to_string(imgIndex) + ".jpeg";
-        if (!cv::imread(nextImgFile).data) 
+        if (!cv::imread(nextImgFile).data)
         {
             imgIndex = 1;
         }
 #else
         cap >> frame;
-        if (frame.empty()) 
+        if (frame.empty())
         {
             std::cerr << "无法从摄像头读取帧\n";
             continue;
@@ -97,7 +98,7 @@ void frameReader()
 #endif
         frameId++;
         // 保持原有的图像处理逻辑不变
-        int startRow = frame.rows*2 / 5;  // 上1/2的起始位置
+        int startRow = frame.rows * 2 / 5;  // 上1/2的起始位置
         int endRow = frame.rows * 5 / 6;  // 下1/6的起始位置
         cv::Mat halfImg = frame(cv::Rect(0, startRow, frame.cols, endRow - startRow));
         cv::resize(halfImg, tinyImg, cv::Size(240, 120), 0, 0, cv::INTER_AREA);
@@ -113,6 +114,7 @@ void frameReader()
     }
 }
 
+/// @brief 巡线线程，负责车道线检测和聚类，上传原始描述子
 void laneTracker()
 {
     uint64_t frameID = 0;
@@ -142,12 +144,13 @@ void laneTracker()
         lanes = detectLanes(processedFrame, HSV_Data_Lane);
         clusterDescriptors = lanesCluster(lanes);
         gWorld.updateLanes(std::move(clusterDescriptors));//更新数据
-        
+
         //通知世界线程 
         {
             std::unique_lock<std::mutex> lock(NotifyingMutex);
-            LaneReady = true;
-            LaneAvailableCondition.notify_all();
+            uint64_t id = CoreFrameData[current_read_id].frameId;  // 拿到当前帧号
+            gNewestFrameId.store(id, std::memory_order_release);
+            LaneAvailableCondition.notify_one();
         }
         std::cout << "noticed\n";
     }
@@ -161,6 +164,7 @@ void YOLO_Run()
     }
 }
 
+/// @brief 图传线程，负责将处理后的帧推送到虚拟摄像头
 void sendMat()
 {
     uint64_t sendID = 0;
@@ -183,6 +187,7 @@ void sendMat()
 }
 
 /// @brief 融合传感器数据，更新世界模型，输出控制信息
+/// 主线程
 void worldFuse()
 {
     using Clock = std::chrono::steady_clock;
@@ -193,15 +198,21 @@ void worldFuse()
     double displayFps = 0.0;          // 真正拿去画图的 fps
     uint64_t sendID = 0;
     cv::Mat rawFrame, processedFrame;
-
+    static uint64_t lastFrameId = 0;   // 上次已处理的帧号
+    static uint64_t lastId = 0;
     while (true)
     {
         //等待生产者通知
+        uint64_t nowId;
         {
             std::unique_lock<std::mutex> lock(NotifyingMutex);
-            LaneReady = false;
-            LaneAvailableCondition.wait(lock, [] { return LaneReady; });
+            LaneAvailableCondition.wait(lock, [] {
+                return gNewestFrameId.load(std::memory_order_acquire) > lastFrameId;
+                });
+            nowId = gNewestFrameId.load(std::memory_order_relaxed);
         }
+        lastFrameId = nowId;   // 锁外更新
+        std::cout << "weaken\n";
 
         //计算唤醒间隔 -> fps
         auto now = Clock::now();
@@ -214,7 +225,7 @@ void worldFuse()
         fpsAccum += fps;
         if (++cnt == 20)
         {
-            displayFps = fpsAccum / 20;   // 真正拿去显示的 fps
+            displayFps = fpsAccum / 20;
             fpsAccum = 0.0;
             cnt = 0;
         }
@@ -224,7 +235,7 @@ void worldFuse()
         {
             std::lock_guard<std::mutex> lk(gSnapMutex);
             gSnap = std::move(fresh);   // 整包移动
-        }     
+        }
 
         //调度决策协程，真正的控制逻辑入口
         if (decision_alarm_ready())
@@ -239,7 +250,7 @@ void worldFuse()
         {
             std::lock_guard<std::mutex> lk(gSnapMutex);
             drawClusterLines(rawFrame, gSnap.lanes);
-			drawMiddleLines(rawFrame, gSnap.dAngle, gSnap.dX);
+            drawMiddleLines(rawFrame, gSnap.dAngle, gSnap.dX);
         }
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(1) << displayFps << " fps";
@@ -264,19 +275,19 @@ void imuAndControl()
     using clock = std::chrono::steady_clock;
     const auto period = std::chrono::milliseconds(10); // 100 Hz
     auto next = clock::now() + period;                 // 第一次的到期点
-	uint8_t cnt = 0;
+    uint8_t cnt = 0;
 
     while (true)
     {
-		delay_ms(5);    // 占位，在这里读取imu数据
-        
+        delay_ms(5);    // 占位，在这里读取imu数据
+
         //50Hz唤醒
-        if(cnt == 0)
+        if (cnt == 0)
         {
             //读取当前的目标舵机角度和电机输出，然后限制jerk平滑输出
-		}
+        }
         cnt = 1 - cnt;
-		
+
         std::this_thread::sleep_until(next);
         next += period;
     }
