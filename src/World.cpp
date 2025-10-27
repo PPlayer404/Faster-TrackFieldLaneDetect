@@ -485,6 +485,102 @@ void drawMiddleLines(cv::Mat& frame, float angle, int dX)
         8);
 }
 
+/// @brief 使用逆透视矩阵对偏航角进行校正和滤波,车道中线向左倾斜为正，右倾斜为负，这个函数应当在控制器输入之前调用
+/// @param peakX 输入的车道中线peakX（int类型）
+/// @param angle 输入的车道中线角度（float类型，弧度制）
+/// @param reset 是否重置滤波器内部状态
+/// @return 校正之后的车道中线描述子
+LaneDescriptor middleLaneFilter(int peakX, float angle, bool reset = false)
+{
+    constexpr int IMG_W = 240;
+    constexpr int IMG_H = 120;
+    constexpr int REF_Y = 60;
+    constexpr int CTR_X = IMG_W / 2;
+    constexpr int BOTTOM_Y = IMG_H - 1;
+
+    // 滤波器参数 - 基于25fps帧率和7Hz截止频率
+    constexpr double FS = 25.0;          // 采样频率 (Hz)
+    constexpr double FC_PEAKX = 12;      // peakX的截止频率 (Hz) - 稍微轻一点
+    constexpr double FC_ANGLE = 5.5;     // 角度的截止频率 (Hz) - 稍微重一点
+    constexpr double DT = 1.0 / FS;      // 采样时间 (s)
+
+    // 计算滤波器系数
+    constexpr double ALPHA_PEAKX = 2.0 * CV_PI * FC_PEAKX * DT / (1.0 + 2.0 * CV_PI * FC_PEAKX * DT);
+    constexpr double ALPHA_ANGLE = 2.0 * CV_PI * FC_ANGLE * DT / (1.0 + 2.0 * CV_PI * FC_ANGLE * DT);
+
+    static cv::Mat ipm_mat = (cv::Mat_<double>(3, 3) <<
+        4.000000, 10.266667, -312.000000,
+        0.000000, 41.833333, -120.000000,
+        0.000000, 0.088889, 1.000000
+        );
+    static cv::Mat ipm_mat_inv;
+    static bool initialized = false;
+
+    // 滤波器状态
+    static double filtered_peakX = 0.0;
+    static double filtered_angle = 0.0;
+    static bool first_run = true;
+
+    if (!initialized)
+    {
+        ipm_mat_inv = ipm_mat.inv();
+        initialized = true;
+    }
+
+    // 重置滤波器状态
+    if (reset || first_run)
+    {
+        filtered_peakX = peakX;  // 使用输入的peakX初始化
+        filtered_angle = angle;  // 使用输入的angle初始化
+        first_run = false;
+
+        // 即使重置，也进行逆透视变换
+        double midXBottom = peakX + CTR_X;  // 替换为输入的peakX
+        double midXRef = midXBottom + (REF_Y - BOTTOM_Y) * std::tan(angle);  // 替换为输入的angle
+
+        cv::Point2d bottom_img(midXBottom, BOTTOM_Y);
+        cv::Point2d ref_img(midXRef, REF_Y);
+
+        std::vector<cv::Point2d> img_points = { bottom_img, ref_img };
+        std::vector<cv::Point2d> bev_points;
+        cv::perspectiveTransform(img_points, bev_points, ipm_mat);
+
+        cv::Point2d dir_bev = bev_points[1] - bev_points[0];
+        double bev_angle = -std::atan2(dir_bev.x, dir_bev.y);
+
+        filtered_angle = bev_angle;
+        return LaneDescriptor{ (int)filtered_peakX, filtered_angle };
+    }
+
+    // 计算图像坐标系中的中线底部点和参考点（使用输入的peakX和angle）
+    double midXBottom = peakX + CTR_X;  // 替换为输入的peakX
+    double midXRef = midXBottom + (REF_Y - BOTTOM_Y) * std::tan(angle);  // 替换为输入的angle
+
+    // 定义图像坐标系中的两个点
+    cv::Point2d bottom_img(midXBottom, BOTTOM_Y);
+    cv::Point2d ref_img(midXRef, REF_Y);
+
+    // 变换到BEV坐标系
+    std::vector<cv::Point2d> img_points = { bottom_img, ref_img };
+    std::vector<cv::Point2d> bev_points;
+    cv::perspectiveTransform(img_points, bev_points, ipm_mat);
+
+    // 计算BEV坐标系中的中线方向向量
+    cv::Point2d dir_bev = bev_points[1] - bev_points[0];
+    double bev_angle = -std::atan2(dir_bev.x, dir_bev.y);
+
+    // 角度周期性校正（核心修复逻辑保留）
+    double angle_diff = bev_angle - filtered_angle;
+    angle_diff = std::atan2(std::sin(angle_diff), std::cos(angle_diff));
+    double corrected_bev_angle = filtered_angle + angle_diff;
+
+    // 应用一阶低通滤波器（使用输入的peakX和校正后的角度）
+    filtered_peakX = ALPHA_PEAKX * peakX + (1.0 - ALPHA_PEAKX) * filtered_peakX;  // 替换为输入的peakX
+    filtered_angle = ALPHA_ANGLE * corrected_bev_angle + (1.0 - ALPHA_ANGLE) * filtered_angle;
+
+    return LaneDescriptor{ (int)filtered_peakX, filtered_angle };
+}
+
 //生产者，前端无锁
 void World::updateLanes(std::vector<ClusterDescriptor> v)
 {
@@ -553,7 +649,7 @@ WorldSnapshot World::dataSync()
     return snap;  // NRVO/move，读者无锁
 }
 
-/// @brief 决策协程，内部有决策逻辑，通过Coroutine_delay(ms)来延时，这一部分由world线程调度
+/// @brief 决策协程，内部有决策逻辑，通过Coroutine_delay(ms)来延时，这一部分由world线程调度,控制器输入的时候应当使用filter做一次逆透视校正和滤波
 /// 负责所有的决策和控制输出，逻辑是被调度之后会一直运行，直到遇到Coroutine_delay(ms)才会挂起，到时间再被调度器唤醒
 /// 非常麻烦，最好不要动外部定义，这个全是kimi弄的，我没能力维护，只改内部逻辑就好了，必须支持cpp20
 /// @return 
@@ -562,6 +658,9 @@ Task decision_coroutine() {
     {
         std::cout << "[CORO] Speed = 0\n";
         Coroutine_delay(1000);
+		//调用示例（需要自己写好stanley和电控部分的实现和gcommandData输出控制结构体）：
+        /*LaneDescriptor filteredMiddleLane = middleLaneFilter(gSnap.dX, gSnap.dAngle);
+        gcommandData.setServoOutput(stanley.calcAngle(filteredMiddleLane.mainAngle * 0.53 / 240 - SHIFT, filteredMiddleLane.peakX, 0.9));*/
 
         std::cout << "[CORO] Speed = 5\n";
         Coroutine_delay(500);
