@@ -151,6 +151,7 @@
     <ClCompile Include="src\Retrans.cpp" />
     <ClCompile Include="src\test.cpp" />
     <ClCompile Include="src\ThreadManager.cpp" />
+    <ClCompile Include="src\utils.cpp" />
     <ClCompile Include="src\World.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -165,6 +166,7 @@
     <ClInclude Include="include\mode.hpp" />
     <ClInclude Include="include\Retrans.hpp" />
     <ClInclude Include="include\ThreadManager.hpp" />
+    <ClInclude Include="include\utils.hpp" />
     <ClInclude Include="include\World.hpp" />
   </ItemGroup>
   <ItemGroup>
