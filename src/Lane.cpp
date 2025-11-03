@@ -63,7 +63,6 @@ void optimizedDoubleThreshold(cv::Mat& input, double highRatio = 0.7, double low
 /// @return 专有结构体
 FDEF_Result FDEF(const cv::Mat& gray)
 {
-    // 优化：使用静态常量核，避免每次调用时重新创建和初始化
     static const cv::Mat kernel_45 = (cv::Mat_<float>(5, 5) <<
         0, 1, 1, 1, 1,
         -1, 0, 3, 2, 1,
@@ -78,49 +77,48 @@ FDEF_Result FDEF(const cv::Mat& gray)
         -1, 0, 3, 2, 1,
         0, 1, 1, 1, 1);
 
-    static const cv::Mat kernel_90 = (cv::Mat_<float>(5, 5) <<
-        -1, -1, 0, 1, 1,
-        -1, -2, 0, 2, 1,
-        -1, -3, 0, 3, 1,
-        -1, -2, 0, 2, 1,
-        -1, -1, 0, 1, 1);
+    cv::Mat s_vert0;
+    cv::Sobel(gray, s_vert0, CV_32F, 1, 0, 5); // x方向导数，5x5核
 
-    cv::Mat s_vert0, s45, s135;
-    cv::filter2D(gray, s_vert0, CV_32F, kernel_90, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
+    cv::Mat s45, s135;
     cv::filter2D(gray, s45, CV_32F, kernel_45, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
     cv::filter2D(gray, s135, CV_32F, kernel_135, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
 
-    cv::Mat s_vert1, s_vert2;
+    cv::Mat s_vert1(s_vert0.size(), CV_32F), s_vert2(s_vert0.size(), CV_32F);
     cv::max(s_vert0, 0, s_vert1);
     cv::min(s_vert0, 0, s_vert2);
-    s_vert2 = -s_vert2;
+    cv::multiply(s_vert2, -1.0f, s_vert2);
+
     cv::max(s45, 0, s45);
     cv::max(s135, 0, s135);
 
     const float alpha = 1.0f / 12.0f;
-    s_vert1.convertTo(s_vert1, CV_8U, alpha);
-    s_vert2.convertTo(s_vert2, CV_8U, alpha);
-    s45.convertTo(s45, CV_8U, alpha);
-    s135.convertTo(s135, CV_8U, alpha);
+    cv::Mat s_vert1_u8, s_vert2_u8, s45_u8, s135_u8;
+    s_vert1.convertTo(s_vert1_u8, CV_8U, alpha);
+    s_vert2.convertTo(s_vert2_u8, CV_8U, alpha);
+    s45.convertTo(s45_u8, CV_8U, alpha);
+    s135.convertTo(s135_u8, CV_8U, alpha);
 
-    cv::Mat shifted = cv::Mat::zeros(s_vert2.size(), s_vert2.type());
-    if (s_vert2.cols > 5) {
-        s_vert2(cv::Rect(5, 0, s_vert2.cols - 5, s_vert2.rows)).copyTo(
-            shifted(cv::Rect(0, 0, s_vert2.cols - 5, s_vert2.rows)));
+    cv::Mat shifted = cv::Mat::zeros(s_vert2_u8.size(), s_vert2_u8.type());
+    if (s_vert2_u8.cols > 5) {
+        cv::Rect srcRect(5, 0, s_vert2_u8.cols - 5, s_vert2_u8.rows);
+        cv::Rect dstRect(0, 0, s_vert2_u8.cols - 5, s_vert2_u8.rows);
+        s_vert2_u8(srcRect).copyTo(shifted(dstRect));
     }
-    s_vert2 = shifted;
+    s_vert2_u8 = shifted;
 
     int mid = gray.cols / 3;
     if (mid > 0) {
-        s45.colRange(0, mid) = 0;
+        s45_u8.colRange(0, mid) = cv::Scalar(0);
     }
     mid *= 2;
     if (mid < gray.cols) {
-        s135.colRange(mid, gray.cols) = 0;
+        s135_u8.colRange(mid, gray.cols) = cv::Scalar(0);
     }
 
-    cv::Mat s_diag = cv::max(s45, s135);
-    cv::Mat s_vert = cv::max(s_vert1, s_vert2);
+    cv::Mat s_diag, s_vert;
+    cv::max(s45_u8, s135_u8, s_diag);
+    cv::max(s_vert1_u8, s_vert2_u8, s_vert);
 
     FDEF_Result result;
     result.sDiag = s_diag;
@@ -147,7 +145,7 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
     cv::GaussianBlur(blurred, blurred, cv::Size(3, 3), 0);
     FDEF_Result edges = FDEF(blurred);
     // 双阈值法
-    optimizedDoubleThreshold(edges.sVert, 0.4, 0.2);
+    optimizedDoubleThreshold(edges.sVert, 0.6, 0.4);
     optimizedDoubleThreshold(edges.sDiag, 0.4, 0.2);
 
     double r = LaneTB::rho;
