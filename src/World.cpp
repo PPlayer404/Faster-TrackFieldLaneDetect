@@ -54,45 +54,57 @@ struct LaneKalmanFilter
 
 LaneKalmanFilter tracker;
 
-/// @brief 使用卡尔曼滤波进行车道线跟踪和预测
+/// @brief 使用卡尔曼滤波进行车道线跟踪和预测 (基于角度的左右识别)
 /// @param lanes 输入的车道线聚类描述子集合
 /// @param tracker 车道线卡尔曼滤波器跟踪器
-/// @param mode 工作模式：DEFAULT(0)-默认模式, RECHECK(1)-重新检查模式, RESET(2)-重置模式
+/// @param left_mode 左线工作模式
+/// @param right_mode 右线工作模式
 /// @return 返回跟踪后的车道线描述子（包含左右车道线，索引左0右1）
 std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, LaneKalmanFilter& tracker, int left_mode, int right_mode)
 {
     std::vector<LaneDescriptor> result;
     static const int IMAGE_CENTER = 120;
-    static const int MAX_LANE_WIDTH = 230;
-    static const int MIN_LANE_WIDTH = 150;
-    static const float VELOCITY_DECAY = 0.2f;
+    static const float VELOCITY_DECAY = 0.4f;
     static const double ANGLE_THRESHOLD = 0.5;
     static const double POSITION_WEIGHT = 0.7;
     static const double ANGLE_WEIGHT = 0.3;
     static const double MIN_SCORE_THRESHOLD = 0.5;
     static const int MATCH_THRESHOLD = 45;
 
-    // Precompute candidates if lanes are not empty
+    // --- 修改开始 ---
+    // Precompute candidates based on angle
     std::vector<ClusterDescriptor> left_candidates;
     std::vector<ClusterDescriptor> right_candidates;
     if (!lanes.empty()) {
         for (const auto& lane : lanes) {
-            if (lane.peakX < IMAGE_CENTER) {
+            // 忽略接近垂直的线，因为它们无法提供明确的左右信息
+            if (std::abs(lane.mainAngle) < 1e-4) {
+                continue;
+            }
+            // 左线：右倾 (角度为负)
+            if (lane.mainAngle < 0) {
                 left_candidates.push_back(lane);
             }
-            else {
+            // 右线：左倾 (角度为正)
+            else if (lane.mainAngle > 0) {
                 right_candidates.push_back(lane);
             }
         }
+
+        // 在各自角度分组内，仍然按位置排序，优先选择最靠近中心的线
+        // 左线组：按 peakX 降序排列 (最靠右的排在最前)
         std::sort(left_candidates.begin(), left_candidates.end(),
             [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
                 return a.peakX > b.peakX;
             });
+        // 右线组：按 peakX 升序排列 (最靠左的排在最前)
         std::sort(right_candidates.begin(), right_candidates.end(),
             [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
                 return a.peakX < b.peakX;
             });
     }
+    // --- 修改结束 ---
+
 
     // Handle modes independently for left and right
     bool reset_left = false;
@@ -133,11 +145,11 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         tracker.right_initialized = false;
     }
 
-    // 其余代码保持不变...
-    // [原函数中从 "Original logic" 开始到函数结束的所有代码保持不变]
-    // 这里为了简洁省略重复代码，实际使用时需要将原函数的剩余部分完整复制过来
+    // 后续逻辑保持不变，因为它操作的是已经分好组的 left_candidates 和 right_candidates
+    // ... (此处省略您提供的原始代码的其余部分，因为它无需更改) ...
+    // ... (从 if (lanes.empty()) 开始到函数结尾的代码都保持原样) ...
+    // ... (为了完整性，我将它们复制在下面) ...
 
-    // 复制原函数中从 "Original logic" 开始的所有代码...
     if (lanes.empty()) {
         LaneDescriptor left_lane, right_lane;
         if (tracker.left_initialized) {
@@ -169,6 +181,7 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         result.push_back(left_lane);
         result.push_back(right_lane);
 
+#ifdef KALMAN_DEBUG
         cv::Mat vis = cv::Mat::zeros(120, 240, CV_8UC3);
         if (tracker.left_initialized) {
             cv::circle(vis, cv::Point(left_lane.peakX, 60), 5, cv::Scalar(255, 0, 0), -1);
@@ -176,6 +189,9 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         if (tracker.right_initialized) {
             cv::circle(vis, cv::Point(right_lane.peakX, 60), 5, cv::Scalar(0, 0, 255), -1);
         }
+        cv::imshow("Lane Tracking", vis);
+        cv::waitKey(1);
+#endif
         return result;
     }
 
@@ -221,18 +237,6 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
     else {
         if (!right_candidates.empty()) {
             right_index = 0;
-        }
-    }
-
-    if (left_index != -1 && right_index != -1) {
-        int lane_width = right_candidates[right_index].peakX - left_candidates[left_index].peakX;
-        if (lane_width < MIN_LANE_WIDTH || lane_width > MAX_LANE_WIDTH) {
-            if (tracker.right_initialized) {
-                left_index = -1;
-            }
-            else if (tracker.left_initialized) {
-                right_index = -1;
-            }
         }
     }
 
@@ -312,7 +316,8 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
 #ifdef KALMAN_DEBUG
     cv::Mat vis = cv::Mat::zeros(120, 240, CV_8UC3);
     for (const auto& lane : lanes) {
-        cv::circle(vis, cv::Point(lane.peakX, 60), 3, cv::Scalar(255, 255, 255), -1);
+        cv::Scalar color = (lane.mainAngle < 0) ? cv::Scalar(100, 100, 255) : cv::Scalar(100, 255, 100);
+        cv::circle(vis, cv::Point(lane.peakX, 60), 3, color, -1);
     }
     if (tracker.left_initialized) {
         cv::circle(vis, cv::Point(left_lane.peakX, 60), 5, cv::Scalar(255, 0, 0), -1);
@@ -343,15 +348,9 @@ LaneDescriptor getMiddleLane(std::vector<LaneDescriptor>& lanes)
     constexpr int REF_Y = 60;
     constexpr int CTR_X = IMG_W / 2;
     constexpr int BOTTOM_Y = IMG_H - 1;
-    constexpr double OFFSET_DIST = 60.0;
+    constexpr double OFFSET_DIST = 105.0;
 
     static LaneDescriptor lastMiddleLane = { 0, 0 };
-
-    static cv::Mat ipm_mat = (cv::Mat_<double>(3, 3) <<
-        4.000000, 10.266667, -312.000000,
-        0.000000, 41.833333, -120.000000,
-        0.000000, 0.088889, 1.000000
-        );
     static cv::Mat ipm_mat_inv;
     static bool initialized = false;
 
@@ -507,12 +506,6 @@ LaneDescriptor middleLaneFilter(int peakX, float angle, bool reset = false)
     // 计算滤波器系数
     constexpr double ALPHA_PEAKX = 2.0 * CV_PI * FC_PEAKX * DT / (1.0 + 2.0 * CV_PI * FC_PEAKX * DT);
     constexpr double ALPHA_ANGLE = 2.0 * CV_PI * FC_ANGLE * DT / (1.0 + 2.0 * CV_PI * FC_ANGLE * DT);
-
-    static cv::Mat ipm_mat = (cv::Mat_<double>(3, 3) <<
-        4.000000, 10.266667, -312.000000,
-        0.000000, 41.833333, -120.000000,
-        0.000000, 0.088889, 1.000000
-        );
     static cv::Mat ipm_mat_inv;
     static bool initialized = false;
 
@@ -617,6 +610,9 @@ World::World()
 /// @brief 更新维护世界模型，双缓冲 + 计算 + 返回快照，这个只融合传感器数据和滤波，决策逻辑在协程中
 WorldSnapshot World::dataSync()
 {
+    static int left_loss_count = 0;
+    static int right_loss_count = 0;
+    const int MAX_LOSS_COUNT = 3; // 最大丢线帧数阈值
     //锁内指针交换
     {
         std::lock_guard<std::mutex> lk(mtx_);
@@ -624,7 +620,7 @@ WorldSnapshot World::dataSync()
         ++frameId_;
     }  // 锁已释放
 
-	//无锁，用的数据是bufBack_,先实例化一个快照
+    //无锁，用的数据是bufBack_,先实例化一个快照
     WorldSnapshot snap
     {
         bufBack_.lanes,//lanes
@@ -634,17 +630,70 @@ WorldSnapshot World::dataSync()
         0,//dx
         0,//dAngle
         bufBack_.imuAngle,//imuAngle
-		0,//motorOutput
-		0,//servoOutput
+        0,//motorOutput
+        0,//servoOutput
         frameId_//frameId
     };
 
-	//融合/滤波，snap 的字段上算，算完 return,这一块负责传感器融合和滤波，由外部事件驱动
-	filterLanes(snap.lanes, 60.0);
-    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, DEFAULT, DEFAULT);
-	LaneDescriptor middleDescriptor = getMiddleLane(tracked_lanes);
-	snap.dX = (int)(middleDescriptor.peakX);
-	snap.dAngle = (float)(middleDescriptor.mainAngle);
+    //融合/滤波，snap 的字段上算，算完 return,这一块负责传感器融合和滤波，由外部事件驱动
+    filterLanes(snap.lanes, 60.0);
+
+    // 修改：根据丢线计数决定是否重置滤波器
+    int left_mode = DEFAULT;
+    int right_mode = DEFAULT;
+
+    // 如果左车道线丢线计数达到阈值，则持续尝试重置
+    if (left_loss_count >= MAX_LOSS_COUNT) {
+        left_mode = RESET;
+    }
+
+    // 如果右车道线丢线计数达到阈值，则持续尝试重置
+    if (right_loss_count >= MAX_LOSS_COUNT) {
+        right_mode = RESET;
+    }
+
+    std::vector<LaneDescriptor> tracked_lanes = kalmanLanes(snap.lanes, tracker, left_mode, right_mode);
+
+    // 修改：更新丢线计数器逻辑
+    if (tracked_lanes.size() >= 2) {
+        // 处理左车道线
+        if (tracked_lanes[0].leftLoss) {
+            left_loss_count++;
+            // 修改：不再在达到阈值时重置计数器，而是保持重置状态
+        }
+        else {
+            // 只有当成功检测到车道线时才重置计数器
+            left_loss_count = 0;
+        }
+
+        // 处理右车道线
+        if (tracked_lanes[1].rightLoss) {
+            right_loss_count++;
+            // 修改：不再在达到阈值时重置计数器，而是保持重置状态
+        }
+        else {
+            // 只有当成功检测到车道线时才重置计数器
+            right_loss_count = 0;
+        }
+    }
+
+#ifdef DEBUG
+    if (left_loss_count > 0) {
+        std::cout << "[DEBUG] Left lane loss count: " << left_loss_count << std::endl;
+    }
+    if (right_loss_count > 0) {
+        std::cout << "[DEBUG] Right lane loss count: " << right_loss_count << std::endl;
+    }
+    if (left_mode == RESET) {
+        std::cout << "[DEBUG] Resetting left lane tracker" << std::endl;
+    }
+    if (right_mode == RESET) {
+        std::cout << "[DEBUG] Resetting right lane tracker" << std::endl;
+    }
+#endif
+    LaneDescriptor middleDescriptor = getMiddleLane(tracked_lanes);
+    snap.dX = (int)(middleDescriptor.peakX);
+    snap.dAngle = (float)(middleDescriptor.mainAngle);
 
     return snap;  // NRVO/move，读者无锁
 }

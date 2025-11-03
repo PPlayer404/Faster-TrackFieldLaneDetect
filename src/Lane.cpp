@@ -7,8 +7,8 @@ namespace LaneTB
 {
     int rho = 2;            // 霍夫累加器距离分辨率
     int theta = 100;         // 霍夫累加器角度分辨率（实际用 theta/100.0*CV_PI/180）
-    int thresh = 120;        // 累加器阈值
-    int minLen = 50;        // 最小线段长度
+    int thresh = 110;        // 累加器阈值
+    int minLen = 40;        // 最小线段长度
     int maxGap = 5;         // 最大允许断裂
     const int maxCount = 100;
     std::string winName = "Lane Detect Params";
@@ -18,31 +18,46 @@ namespace LaneTB
 /// @param input 边缘强度图
 /// @param highRatio 高阈值
 /// @param lowRatio 低阈值
-void optimizedDoubleThreshold(cv::Mat& input, double highRatio = 0.7, double lowRatio = 0.3) 
+void optimizedDoubleThreshold(cv::Mat& input, double highRatio = 0.7, double lowRatio = 0.3)
 {
+    CV_Assert(!input.empty() && (input.channels() == 1));
+
     double maxVal;
     cv::minMaxLoc(input, nullptr, &maxVal);
-
+    if (maxVal < std::numeric_limits<double>::epsilon()) {
+        input.setTo(0);
+        return;
+    }
     double highThreshold = maxVal * highRatio;
     double lowThreshold = maxVal * lowRatio;
-
-    // 创建强边缘和弱边缘掩码
+    cv::Mat allPotentialEdges = (input >= lowThreshold);
     cv::Mat strongMask = (input >= highThreshold);
-    cv::Mat weakMask = (input >= lowThreshold) & (input < highThreshold);
+    cv::Mat labels, stats, centroids;
+    int numLabels = cv::connectedComponentsWithStats(allPotentialEdges, labels, stats, centroids, 8, CV_32S);
+    cv::Mat finalMask = cv::Mat::zeros(input.size(), CV_8U);
 
-    // 使用距离变换找到弱边缘到强边缘的连通性
-    cv::Mat distTransform;
-    cv::distanceTransform(~strongMask, distTransform, cv::DIST_C, 3);
+    for (int i = 1; i < numLabels; ++i) {
+        int x = stats.at<int>(i, cv::CC_STAT_LEFT);
+        int y = stats.at<int>(i, cv::CC_STAT_TOP);
+        int width = stats.at<int>(i, cv::CC_STAT_WIDTH);
+        int height = stats.at<int>(i, cv::CC_STAT_HEIGHT);
 
-    // 设置连通距离阈值（可根据图像大小调整）
-    double connectivityThreshold = 1.0;
-    cv::Mat connectedWeak = (distTransform <= connectivityThreshold) & weakMask;
+        if (width <= 0 || height <= 0) continue;
 
-    // 合并结果
+        cv::Rect roi(x, y, width, height);
+        cv::Mat labelsROI = labels(roi);
+        cv::Mat strongMaskROI = strongMask(roi);
+
+        cv::Mat componentContainsStrong = (labelsROI == i) & strongMaskROI;
+        if (cv::countNonZero(componentContainsStrong) > 0) {
+            finalMask.setTo(255, labels == i);
+        }
+    }
+
     input.setTo(0);
-    input.setTo(255, strongMask);
-    input.setTo(255, connectedWeak);
+    input.setTo(255, finalMask);
 }
+
 
 /// @brief Fused_Directional_Edge_Filter 算子融合定向边缘检测器
 /// @param gray 要提取边缘的灰度图
@@ -55,26 +70,26 @@ FDEF_Result FDEF(const cv::Mat& gray, float weight = 7.f)
 
     // 创建45度核
     cv::Mat kernel_45 = (cv::Mat_<float>(5, 5) <<
-         0,  1,  1,  1,  1,
-        -1,  0,  3,  2,  1,
-        -1, -3,  0,  3,  1,
-        -1, -2, -3,  0,  1,
-        -1, -1, -1, -1,  0);
+        0, 1, 1, 1, 1,
+        -1, 0, 3, 2, 1,
+        -1, -3, 0, 3, 1,
+        -1, -2, -3, 0, 1,
+        -1, -1, -1, -1, 0);
 
     // 创建135度核
     cv::Mat kernel_135 = (cv::Mat_<float>(5, 5) <<
-        -1, -1, -1, -1,  0,
-        -1, -2, -3,  0,  1,
-        -1, -3,  0,  3,  1,
-        -1,  0,  3,  2,  1,
-         0,  1,  1,  1,  1);
+        -1, -1, -1, -1, 0,
+        -1, -2, -3, 0, 1,
+        -1, -3, 0, 3, 1,
+        -1, 0, 3, 2, 1,
+        0, 1, 1, 1, 1);
 
     cv::Mat kernel_90 = (cv::Mat_<float>(5, 5) <<
-        -1, -1,  0,  1,  1,
-        -1, -2,  0,  2,  1,
-        -1, -3,  0,  3,  1,
-        -1, -2,  0,  2,  1,
-        -1, -1,  0,  1,  1);
+        -1, -1, 0, 1, 1,
+        -1, -2, 0, 2, 1,
+        -1, -3, 0, 3, 1,
+        -1, -2, 0, 2, 1,
+        -1, -1, 0, 1, 1);
 
     // 应用滤波器
     cv::Mat s_vert0, s_vert1, s_vert2, s45, s135;
@@ -130,27 +145,20 @@ FDEF_Result FDEF(const cv::Mat& gray, float weight = 7.f)
 /// @return 原始直线组结果
 std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 {
+
     cv::Mat blurred, gray, blurred_1;
-    //cv::Mat gray_custom;
-    //cv::transform(processed_img, gray_custom, cv::Matx13f(1, 0.0, 0.0)); // -R + G + B
-    //cv::normalize(gray_custom, gray, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     cv::cvtColor(processed_img, gray, cv::COLOR_BGR2GRAY);
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(1.7, cv::Size(4, 2));
     clahe->apply(gray, gray);
     cv::Mat mask = gray < 150;
     gray.setTo(150, mask);
     clahe->apply(gray, gray);
-    cv::GaussianBlur(gray, blurred_1, cv::Size(3, 3), 0);
-    fgf::structureTransference(blurred_1, gray, blurred, 12, 0.02, 2);
-    /*blurred = fastGuidedFilter_2(gray, blurred_1, 12, 0.02, 2);*/
-    //FastGuidedFilter(gray, gray, blurred, 12, 0.02, 2);
-    //cv::GaussianBlur(gray, blurred, cv::Size(5, 5), 1.5);  // 5x5核， sigma=1.5
+    cv::GaussianBlur(gray, blurred, cv::Size(3, 5), 0);
     FDEF_Result edges = FDEF(blurred);
     // 双阈值法
-    optimizedDoubleThreshold(edges.sVert, 0.8, 0.6);
-    optimizedDoubleThreshold(edges.sDiag, 0.8, 0.6);
+    optimizedDoubleThreshold(edges.sVert, 0.86, 0.7);
+    optimizedDoubleThreshold(edges.sDiag, 0.86, 0.7);
 
-    /*-------------  进度条参数实时读取 -------------*/
     double r = LaneTB::rho;
     double t = LaneTB::theta / 100.0 * CV_PI / 180.0;
     int   th = LaneTB::thresh;
@@ -175,9 +183,9 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 
     // 2. 原始逆透视矩阵
     cv::Mat H = (cv::Mat_<double>(3, 3) <<
-        4.000000, 10.266667, -312.000000,
-        0.000000, 41.833333, -120.000000,
-        0.000000, 0.088889, 1.000000
+        -0.350648f, -2.041805f, 461.86929f,
+        -0.147207f, -3.328071f, 749.042284f,
+        -0.000292f, -0.005138f, 1.0f
         );
 
     // 3. 构造“画布居中”平移矩阵
@@ -201,11 +209,11 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 
     // 6. 显示
     cv::imshow("Bird-Eye View", canvas);
-	cv::imshow("blurred", blurred);
+    cv::imshow("blurred", blurred);
     cv::imshow("raw", img_with_lanes);
     cv::imshow("edge", edges.sDiag);
     cv::imshow("edgeY", edges.sVert);
-	cv::imshow("gray", gray);
+    cv::imshow("gray", gray);
     cv::waitKey(1);
 #endif
     return Lanes;
@@ -391,3 +399,69 @@ cv::Mat fastGuidedFilter_2(cv::Mat I_org, cv::Mat p_org, int r, double eps, int 
     return result;  // 或者返回 q 保持浮点精度
 }
 
+/**
+ * @brief Applies the Frangi filter to a 2D grayscale image to enhance line-like structures.
+ *
+ * @param src The input single-channel 8-bit image (CV_8UC1).
+ * @param sigma_start The starting scale for the filter (e.g., 1.0).
+ * @param sigma_end The ending scale for the filter (e.g., 5.0).
+ * @param sigma_step The step size between scales (e.g., 0.5).
+ * @param beta1 Parameter that controls the sensitivity to blob-like structures.
+ * @param beta2 Parameter that controls the sensitivity to background noise.
+ * @return The filtered image (CV_8UC1), where bright pixels indicate strong line-like responses.
+ */
+cv::Mat frangi_filter(const cv::Mat& src, float sigma_start, float sigma_end, float sigma_step, float beta1, float beta2) {
+    cv::Mat src_float;
+    src.convertTo(src_float, CV_32F);
+    cv::Mat J = cv::Mat::zeros(src.size(), CV_32F);
+
+    float beta1_sq = beta1 * beta1;
+    float beta2_sq = beta2 * beta2;
+
+    for (float sigma = sigma_start; sigma <= sigma_end; sigma += sigma_step) {
+        cv::Mat blurred;
+        cv::GaussianBlur(src_float, blurred, cv::Size(0, 0), sigma);
+
+        cv::Mat Ixx, Ixy, Iyy;
+        cv::Sobel(blurred, Ixx, CV_32F, 2, 0, 1);
+        cv::Sobel(blurred, Ixy, CV_32F, 1, 1, 1);
+        cv::Sobel(blurred, Iyy, CV_32F, 0, 2, 1);
+
+        cv::Mat temp1, temp2, temp3;
+        temp1 = (Ixx - Iyy) / 2.0f;
+        temp2 = Ixy;
+        cv::pow(temp1, 2, temp1);
+        cv::pow(temp2, 2, temp2);
+        cv::sqrt(temp1 + temp2, temp3); // sqrt((Ixx-Iyy)^2/4 + Ixy^2)
+
+        cv::Mat lambda1 = (Ixx + Iyy) / 2.0f + temp3;
+        cv::Mat lambda2 = (Ixx + Iyy) / 2.0f - temp3;
+
+        lambda1 = cv::abs(lambda1);
+        lambda2 = cv::abs(lambda2);
+
+        // Ensure |lambda1| >= |lambda2|
+        cv::Mat mask = lambda1 < lambda2;
+        cv::Mat temp = lambda1.clone();
+        lambda1.copyTo(temp, mask);
+        lambda2.copyTo(lambda1, mask);
+        temp.copyTo(lambda2, mask);
+
+        cv::Mat Rb, S, F;
+        cv::divide(lambda2, lambda1, Rb); // lambda2 / lambda1
+        cv::pow(Rb, 2, Rb);
+        cv::exp(-Rb / beta1_sq, Rb); // exp(-(lambda2/lambda1)^2 / beta1^2)
+
+        cv::pow(lambda1, 2, S);
+        cv::pow(lambda2, 2, temp1);
+        S += temp1;
+        cv::exp(-S / (2 * beta2_sq), S); // exp(-(lambda1^2 + lambda2^2) / (2 * beta2^2))
+
+        F = Rb.mul(S);
+        J = cv::max(J, F);
+    }
+
+    cv::Mat result;
+    J.convertTo(result, CV_8U, 255.0);
+    return result;
+}
