@@ -35,7 +35,7 @@ void frameReader()
     uint64_t frameId = 0;
 #ifdef _WIN32
     // Windows环境下从图片路径读取图片
-    std::string imgPath = "E:/img/imgs/img51/";  // 修改为正确的路径分隔符
+    std::string imgPath = "E:/img/imgs/img6/";  // 修改为正确的路径分隔符
     int imgIndex = 1;
 
     // 检查路径是否存在

@@ -3,6 +3,7 @@
 #include "mode.hpp"
 #include <climits>
 #include "ThreadManager.hpp"
+#include <chrono>
 
 #define DEFAULT 0
 #define RECHECK 1
@@ -20,34 +21,56 @@ struct LaneDescriptor
     bool rightLoss;
 };
 
-struct LaneKalmanFilter 
+// --- 修改开始 ---
+struct LaneKalmanFilter
 {
-    cv::KalmanFilter kf_left; 
+    cv::KalmanFilter kf_left;
     cv::KalmanFilter kf_right;
     bool left_initialized;
-    bool right_initialized;  
+    bool right_initialized;
     double last_left_angle;
     double last_right_angle;
     int last_left_x;
     int last_right_x;
 
+    // 新增：用于内部计时的成员
+    std::chrono::steady_clock::time_point last_update_time;
+    // 新增：用于存储基础过程噪声矩阵，方便按dt缩放
+    cv::Mat processNoiseCov_base;
+
     LaneKalmanFilter() : left_initialized(false), right_initialized(false),
         last_left_angle(0), last_right_angle(0),
-        last_left_x(0), last_right_x(0) {
-        const float R = 3.0f;          // 测量方差 ≈ 1.7 pixel σ
-        const float Qp = 1.0f;          // 位置过程噪声
-        const float Qv = 40.0f;         // 速度过程噪声
-        const float P0 = 5.0f;          // 初始不确定度
+        last_left_x(0), last_right_x(0),
+        last_update_time{} { // 初始化时间戳为“零”
+
+        // --- 参数重调 ---
+        // 注意：这些参数现在是基于“每秒”的物理单位
+        const float R = 3.0f;          // 测量方差 (pixel^2)，与时间无关，保持不变
+        const float Qp_base = 10.0f;   // 位置过程噪声 (pixel^2/s)
+        const float Qv_base = 100.0f;  // 速度过程噪声 (pixel^2/s^3)
+        const float P0_pos = 5.0f;     // 初始位置不确定度 (pixel^2)
+        const float P0_vel = 100.0f;   // 初始速度不确定度 (pixel^2/s^2)
+
+        // 存储基础过程噪声矩阵
+        processNoiseCov_base = cv::Mat::eye(2, 2, CV_32F); // 创建一个2x2的float类型单位矩阵
+        processNoiseCov_base.at<float>(0, 0) = Qp_base;
+        processNoiseCov_base.at<float>(1, 1) = Qv_base;
 
         for (auto kf : { &kf_left, &kf_right }) {
             kf->init(2, 1, 0);
-            kf->transitionMatrix = (cv::Mat_<float>(2, 2) << 1, 1, 0, 1);
+            // 状态转移矩阵F将动态设置，这里先初始化为单位矩阵
+            kf->transitionMatrix = (cv::Mat_<float>(2, 2) << 1, 0, 0, 1);
             kf->measurementMatrix = (cv::Mat_<float>(1, 2) << 1, 0);
+
+            // 初始过程噪声为0，将在每次预测前根据dt更新
             cv::setIdentity(kf->processNoiseCov, cv::Scalar(0.0f));
-            kf->processNoiseCov.at<float>(0, 0) = Qp;
-            kf->processNoiseCov.at<float>(1, 1) = Qv;
+
             cv::setIdentity(kf->measurementNoiseCov, cv::Scalar(R));
-            cv::setIdentity(kf->errorCovPost, cv::Scalar(P0));
+
+            // 设置初始协方差矩阵P0
+            cv::setIdentity(kf->errorCovPost, cv::Scalar(0.0f));
+            kf->errorCovPost.at<float>(0, 0) = P0_pos;
+            kf->errorCovPost.at<float>(1, 1) = P0_vel;
         }
     }
 };
@@ -64,7 +87,10 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
 {
     std::vector<LaneDescriptor> result;
     static const int IMAGE_CENTER = 120;
-    static const float VELOCITY_DECAY = 0.4f;
+    // --- 修改开始 ---
+    // 新增：基于时间的速度衰减常数
+    static const float VELOCITY_DECAY_LAMBDA = 2.0f; // 衰减时间常数约为 1/lambda = 0.5秒
+    // --- 修改结束 ---
     static const double ANGLE_THRESHOLD = 0.5;
     static const double POSITION_WEIGHT = 0.7;
     static const double ANGLE_WEIGHT = 0.3;
@@ -72,126 +98,98 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
     static const int MATCH_THRESHOLD = 45;
 
     // --- 修改开始 ---
-    // Precompute candidates based on angle
+    // 1. 计算时间增量 dt
+    auto now = std::chrono::steady_clock::now();
+    double dt = 1.0 / 30.0; // 默认dt，假设30fps
+    if (tracker.last_update_time != std::chrono::steady_clock::time_point{}) {
+        dt = std::chrono::duration<double>(now - tracker.last_update_time).count();
+        // 将dt限制在合理范围内，防止因帧率骤降导致预测发散
+        dt = std::max(0.001, std::min(dt, 0.2)); // dt在1ms到200ms之间
+    }
+    // --- 修改结束 ---
+
     std::vector<ClusterDescriptor> left_candidates;
     std::vector<ClusterDescriptor> right_candidates;
     if (!lanes.empty()) {
         for (const auto& lane : lanes) {
-            // 忽略接近垂直的线，因为它们无法提供明确的左右信息
-            if (std::abs(lane.mainAngle) < 1e-4) {
-                continue;
-            }
-            // 左线：右倾 (角度为负)
-            if (lane.mainAngle < 0) {
-                left_candidates.push_back(lane);
-            }
-            // 右线：左倾 (角度为正)
-            else if (lane.mainAngle > 0) {
-                right_candidates.push_back(lane);
-            }
+            if (std::abs(lane.mainAngle) < 1e-4) continue;
+            if (lane.mainAngle < 0) left_candidates.push_back(lane);
+            else if (lane.mainAngle > 0) right_candidates.push_back(lane);
         }
-
-        // 在各自角度分组内，仍然按位置排序，优先选择最靠近中心的线
-        // 左线组：按 peakX 降序排列 (最靠右的排在最前)
-        std::sort(left_candidates.begin(), left_candidates.end(),
-            [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
-                return a.peakX > b.peakX;
-            });
-        // 右线组：按 peakX 升序排列 (最靠左的排在最前)
-        std::sort(right_candidates.begin(), right_candidates.end(),
-            [](const ClusterDescriptor& a, const ClusterDescriptor& b) {
-                return a.peakX < b.peakX;
-            });
+        std::sort(left_candidates.begin(), left_candidates.end(), [](const ClusterDescriptor& a, const ClusterDescriptor& b) { return a.peakX > b.peakX; });
+        std::sort(right_candidates.begin(), right_candidates.end(), [](const ClusterDescriptor& a, const ClusterDescriptor& b) { return a.peakX < b.peakX; });
     }
-    // --- 修改结束 ---
 
-
-    // Handle modes independently for left and right
     bool reset_left = false;
     bool reset_right = false;
-
-    // Left lane mode handling
     if (left_mode == RECHECK) {
         if (!lanes.empty() && tracker.left_initialized && !left_candidates.empty()) {
             float current_left_x = tracker.kf_left.statePost.at<float>(0);
             float candidate_left_x = left_candidates[0].peakX;
-            if (std::abs(candidate_left_x - current_left_x) > 40) {
-                reset_left = true;
-            }
+            if (std::abs(candidate_left_x - current_left_x) > 40) reset_left = true;
         }
     }
-    else if (left_mode == RESET) {
-        reset_left = true;
-    }
-
-    // Right lane mode handling  
+    else if (left_mode == RESET) { reset_left = true; }
     if (right_mode == RECHECK) {
         if (!lanes.empty() && tracker.right_initialized && !right_candidates.empty()) {
             float current_right_x = tracker.kf_right.statePost.at<float>(0);
             float candidate_right_x = right_candidates[0].peakX;
-            if (std::abs(candidate_right_x - current_right_x) > 40) {
-                reset_right = true;
-            }
+            if (std::abs(candidate_right_x - current_right_x) > 40) reset_right = true;
         }
     }
-    else if (right_mode == RESET) {
-        reset_right = true;
-    }
+    else if (right_mode == RESET) { reset_right = true; }
 
-    if (reset_left) {
-        tracker.left_initialized = false;
-    }
-    if (reset_right) {
-        tracker.right_initialized = false;
-    }
-
-    // 后续逻辑保持不变，因为它操作的是已经分好组的 left_candidates 和 right_candidates
-    // ... (此处省略您提供的原始代码的其余部分，因为它无需更改) ...
-    // ... (从 if (lanes.empty()) 开始到函数结尾的代码都保持原样) ...
-    // ... (为了完整性，我将它们复制在下面) ...
+    if (reset_left) tracker.left_initialized = false;
+    if (reset_right) tracker.right_initialized = false;
+    // 注意：我们不在这里重置 last_update_time，因为计时器应该持续运行
 
     if (lanes.empty()) {
         LaneDescriptor left_lane, right_lane;
         if (tracker.left_initialized) {
+            // --- 修改开始 ---
+            // 2. 在预测前更新卡尔曼滤波器矩阵
+            tracker.kf_left.transitionMatrix.at<float>(0, 1) = static_cast<float>(dt);
+            tracker.kf_left.processNoiseCov = tracker.processNoiseCov_base * static_cast<float>(dt);
+            // --- 修改结束 ---
+
             tracker.kf_left.predict();
-            tracker.kf_left.statePost.at<float>(1) *= VELOCITY_DECAY;
+            // --- 修改开始 ---
+            // 3. 使用基于时间的指数衰减
+            tracker.kf_left.statePost.at<float>(1) *= std::exp(-VELOCITY_DECAY_LAMBDA * dt);
+            // --- 修改结束 ---
             cv::Mat left_state = tracker.kf_left.statePost;
             left_lane.peakX = left_state.at<float>(0);
             left_lane.mainAngle = tracker.last_left_angle;
             left_lane.leftLoss = true;
-            left_lane.rightLoss = false;
         }
-        else {
-            left_lane.leftLoss = true;
-            left_lane.rightLoss = false;
-        }
+        else { left_lane.leftLoss = true; }
+
         if (tracker.right_initialized) {
+            // --- 修改开始 ---
+            // 2. 在预测前更新卡尔曼滤波器矩阵
+            tracker.kf_right.transitionMatrix.at<float>(0, 1) = static_cast<float>(dt);
+            tracker.kf_right.processNoiseCov = tracker.processNoiseCov_base * static_cast<float>(dt);
+            // --- 修改结束 ---
+
             tracker.kf_right.predict();
-            tracker.kf_right.statePost.at<float>(1) *= VELOCITY_DECAY;
+            // --- 修改开始 ---
+            // 3. 使用基于时间的指数衰减
+            tracker.kf_right.statePost.at<float>(1) *= std::exp(-VELOCITY_DECAY_LAMBDA * dt);
+            // --- 修改结束 ---
             cv::Mat right_state = tracker.kf_right.statePost;
             right_lane.peakX = right_state.at<float>(0);
             right_lane.mainAngle = tracker.last_right_angle;
-            right_lane.leftLoss = false;
             right_lane.rightLoss = true;
         }
-        else {
-            right_lane.leftLoss = false;
-            right_lane.rightLoss = true;
-        }
+        else { right_lane.rightLoss = true; }
+
         result.push_back(left_lane);
         result.push_back(right_lane);
 
-#ifdef KALMAN_DEBUG
-        cv::Mat vis = cv::Mat::zeros(120, 240, CV_8UC3);
-        if (tracker.left_initialized) {
-            cv::circle(vis, cv::Point(left_lane.peakX, 60), 5, cv::Scalar(255, 0, 0), -1);
-        }
-        if (tracker.right_initialized) {
-            cv::circle(vis, cv::Point(right_lane.peakX, 60), 5, cv::Scalar(0, 0, 255), -1);
-        }
-        cv::imshow("Lane Tracking", vis);
-        cv::waitKey(1);
-#endif
+        // --- 修改开始 ---
+        // 4. 在函数返回前更新时间戳
+        tracker.last_update_time = now;
+        // --- 修改结束 ---
         return result;
     }
 
@@ -213,11 +211,7 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             }
         }
     }
-    else {
-        if (!left_candidates.empty()) {
-            left_index = 0;
-        }
-    }
+    else { if (!left_candidates.empty()) left_index = 0; }
 
     if (tracker.right_initialized) {
         float best_score = -1;
@@ -234,22 +228,24 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
             }
         }
     }
-    else {
-        if (!right_candidates.empty()) {
-            right_index = 0;
-        }
-    }
+    else { if (!right_candidates.empty()) right_index = 0; }
 
     if (left_index != -1) {
         cv::Mat measurement = (cv::Mat_<float>(1, 1) << left_candidates[left_index].peakX);
         if (!tracker.left_initialized) {
             tracker.kf_left.statePre.at<float>(0) = left_candidates[left_index].peakX;
-            tracker.kf_left.statePre.at<float>(1) = 0;
+            tracker.kf_left.statePre.at<float>(1) = 0; // 初始速度为0 (像素/秒)
             tracker.kf_left.statePost = tracker.kf_left.statePre.clone();
             tracker.left_initialized = true;
             tracker.last_left_x = left_candidates[left_index].peakX;
         }
         else {
+            // --- 修改开始 ---
+            // 2. 在预测前更新卡尔曼滤波器矩阵
+            tracker.kf_left.transitionMatrix.at<float>(0, 1) = static_cast<float>(dt);
+            tracker.kf_left.processNoiseCov = tracker.processNoiseCov_base * static_cast<float>(dt);
+            // --- 修改结束 ---
+
             tracker.kf_left.predict();
             tracker.kf_left.correct(measurement);
             tracker.last_left_x = left_candidates[left_index].peakX;
@@ -259,32 +255,42 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         left_lane.mainAngle = left_candidates[left_index].mainAngle;
         tracker.last_left_angle = left_candidates[left_index].mainAngle;
         left_lane.leftLoss = false;
-        left_lane.rightLoss = false;
     }
     else if (tracker.left_initialized) {
+        // --- 修改开始 ---
+        // 2. 在预测前更新卡尔曼滤波器矩阵
+        tracker.kf_left.transitionMatrix.at<float>(0, 1) = static_cast<float>(dt);
+        tracker.kf_left.processNoiseCov = tracker.processNoiseCov_base * static_cast<float>(dt);
+        // --- 修改结束 ---
+
         tracker.kf_left.predict();
-        tracker.kf_left.statePost.at<float>(1) *= VELOCITY_DECAY;
+        // --- 修改开始 ---
+        // 3. 使用基于时间的指数衰减
+        tracker.kf_left.statePost.at<float>(1) *= std::exp(-VELOCITY_DECAY_LAMBDA * dt);
+        // --- 修改结束 ---
         cv::Mat left_state = tracker.kf_left.statePost;
         left_lane.peakX = left_state.at<float>(0);
         left_lane.mainAngle = tracker.last_left_angle;
         left_lane.leftLoss = true;
-        left_lane.rightLoss = false;
     }
-    else {
-        left_lane.leftLoss = true;
-        left_lane.rightLoss = false;
-    }
+    else { left_lane.leftLoss = true; }
 
     if (right_index != -1) {
         cv::Mat measurement = (cv::Mat_<float>(1, 1) << right_candidates[right_index].peakX);
         if (!tracker.right_initialized) {
             tracker.kf_right.statePre.at<float>(0) = right_candidates[right_index].peakX;
-            tracker.kf_right.statePre.at<float>(1) = 0;
+            tracker.kf_right.statePre.at<float>(1) = 0; // 初始速度为0 (像素/秒)
             tracker.kf_right.statePost = tracker.kf_right.statePre.clone();
             tracker.right_initialized = true;
             tracker.last_right_x = right_candidates[right_index].peakX;
         }
         else {
+            // --- 修改开始 ---
+            // 2. 在预测前更新卡尔曼滤波器矩阵
+            tracker.kf_right.transitionMatrix.at<float>(0, 1) = static_cast<float>(dt);
+            tracker.kf_right.processNoiseCov = tracker.processNoiseCov_base * static_cast<float>(dt);
+            // --- 修改结束 ---
+
             tracker.kf_right.predict();
             tracker.kf_right.correct(measurement);
             tracker.last_right_x = right_candidates[right_index].peakX;
@@ -293,27 +299,32 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
         right_lane.peakX = right_state.at<float>(0);
         right_lane.mainAngle = right_candidates[right_index].mainAngle;
         tracker.last_right_angle = right_candidates[right_index].mainAngle;
-        right_lane.leftLoss = false;
         right_lane.rightLoss = false;
     }
     else if (tracker.right_initialized) {
+        // --- 修改开始 ---
+        // 2. 在预测前更新卡尔曼滤波器矩阵
+        tracker.kf_right.transitionMatrix.at<float>(0, 1) = static_cast<float>(dt);
+        tracker.kf_right.processNoiseCov = tracker.processNoiseCov_base * static_cast<float>(dt);
+        // --- 修改结束 ---
+
         tracker.kf_right.predict();
-        tracker.kf_right.statePost.at<float>(1) *= VELOCITY_DECAY;
+        // --- 修改开始 ---
+        // 3. 使用基于时间的指数衰减
+        tracker.kf_right.statePost.at<float>(1) *= std::exp(-VELOCITY_DECAY_LAMBDA * dt);
+        // --- 修改结束 ---
         cv::Mat right_state = tracker.kf_right.statePost;
         right_lane.peakX = right_state.at<float>(0);
         right_lane.mainAngle = tracker.last_right_angle;
-        right_lane.leftLoss = false;
         right_lane.rightLoss = true;
     }
-    else {
-        right_lane.leftLoss = false;
-        right_lane.rightLoss = true;
-    }
+    else { right_lane.rightLoss = true; }
 
     result.push_back(left_lane);
     result.push_back(right_lane);
 
 #ifdef KALMAN_DEBUG
+    // Debug visualization code remains the same
     cv::Mat vis = cv::Mat::zeros(120, 240, CV_8UC3);
     for (const auto& lane : lanes) {
         cv::Scalar color = (lane.mainAngle < 0) ? cv::Scalar(100, 100, 255) : cv::Scalar(100, 255, 100);
@@ -321,17 +332,20 @@ std::vector<LaneDescriptor> kalmanLanes(std::vector<ClusterDescriptor>& lanes, L
     }
     if (tracker.left_initialized) {
         cv::circle(vis, cv::Point(left_lane.peakX, 60), 5, cv::Scalar(255, 0, 0), -1);
-        cv::putText(vis, left_lane.leftLoss ? "L:pred" : "L:det",
-            cv::Point(left_lane.peakX - 20, 50), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 0, 0));
+        cv::putText(vis, left_lane.leftLoss ? "L:pred" : "L:det", cv::Point(left_lane.peakX - 20, 50), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 0, 0));
     }
     if (tracker.right_initialized) {
         cv::circle(vis, cv::Point(right_lane.peakX, 60), 5, cv::Scalar(0, 0, 255), -1);
-        cv::putText(vis, right_lane.rightLoss ? "R:pred" : "R:det",
-            cv::Point(right_lane.peakX - 20, 50), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 255));
+        cv::putText(vis, right_lane.rightLoss ? "R:pred" : "R:det", cv::Point(right_lane.peakX - 20, 50), cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 255));
     }
     cv::imshow("Lane Tracking", vis);
     cv::waitKey(1);
 #endif
+
+    // --- 修改开始 ---
+    // 4. 在函数返回前更新时间戳
+    tracker.last_update_time = now;
+    // --- 修改结束 ---
 
     return result;
 }
