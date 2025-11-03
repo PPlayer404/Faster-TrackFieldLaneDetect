@@ -58,78 +58,68 @@ void optimizedDoubleThreshold(cv::Mat& input, double highRatio = 0.7, double low
     input.setTo(255, finalMask);
 }
 
-
 /// @brief Fused_Directional_Edge_Filter 算子融合定向边缘检测器
 /// @param gray 要提取边缘的灰度图
-/// @param weight 已废弃参数
 /// @return 专有结构体
-FDEF_Result FDEF(const cv::Mat& gray, float weight = 7.f)
+FDEF_Result FDEF(const cv::Mat& gray)
 {
-    float w = weight / 2.5f;
-    float d = 0.95f;
-
-    // 创建45度核
-    cv::Mat kernel_45 = (cv::Mat_<float>(5, 5) <<
+    // 优化：使用静态常量核，避免每次调用时重新创建和初始化
+    static const cv::Mat kernel_45 = (cv::Mat_<float>(5, 5) <<
         0, 1, 1, 1, 1,
         -1, 0, 3, 2, 1,
         -1, -3, 0, 3, 1,
         -1, -2, -3, 0, 1,
         -1, -1, -1, -1, 0);
 
-    // 创建135度核
-    cv::Mat kernel_135 = (cv::Mat_<float>(5, 5) <<
+    static const cv::Mat kernel_135 = (cv::Mat_<float>(5, 5) <<
         -1, -1, -1, -1, 0,
         -1, -2, -3, 0, 1,
         -1, -3, 0, 3, 1,
         -1, 0, 3, 2, 1,
         0, 1, 1, 1, 1);
 
-    cv::Mat kernel_90 = (cv::Mat_<float>(5, 5) <<
+    static const cv::Mat kernel_90 = (cv::Mat_<float>(5, 5) <<
         -1, -1, 0, 1, 1,
         -1, -2, 0, 2, 1,
         -1, -3, 0, 3, 1,
         -1, -2, 0, 2, 1,
         -1, -1, 0, 1, 1);
 
-    // 应用滤波器
-    cv::Mat s_vert0, s_vert1, s_vert2, s45, s135;
-    cv::filter2D(gray, s_vert0, -1, kernel_90, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
-    cv::filter2D(gray, s45, -1, kernel_45, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
-    cv::filter2D(gray, s135, -1, kernel_135, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
+    cv::Mat s_vert0, s45, s135;
+    cv::filter2D(gray, s_vert0, CV_32F, kernel_90, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
+    cv::filter2D(gray, s45, CV_32F, kernel_45, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
+    cv::filter2D(gray, s135, CV_32F, kernel_135, cv::Point(-1, -1), 0, cv::BORDER_DEFAULT);
 
-    // 第一步：直接截断0以下的梯度值（将负值设为0）
-    cv::max(s_vert0, 0, s_vert1);  // 只保留非负值，负值直接截断为0
+    cv::Mat s_vert1, s_vert2;
+    cv::max(s_vert0, 0, s_vert1);
     cv::min(s_vert0, 0, s_vert2);
-    s_vert2 = -s_vert2;//把垂直方向的正负梯度都弄出来
+    s_vert2 = -s_vert2;
     cv::max(s45, 0, s45);
     cv::max(s135, 0, s135);
 
-    // 第二步：仅对正梯度进行归一化拉伸（0到最大值映射到0到255）
-    cv::normalize(s_vert1, s_vert1, 0, 255, cv::NORM_MINMAX);
-    cv::normalize(s_vert2, s_vert2, 0, 255, cv::NORM_MINMAX);
-    cv::normalize(s45, s45, 0, 255, cv::NORM_MINMAX);
-    cv::normalize(s135, s135, 0, 255, cv::NORM_MINMAX);
+    const float alpha = 1.0f / 12.0f;
+    s_vert1.convertTo(s_vert1, CV_8U, alpha);
+    s_vert2.convertTo(s_vert2, CV_8U, alpha);
+    s45.convertTo(s45, CV_8U, alpha);
+    s135.convertTo(s135, CV_8U, alpha);
 
-    // 转换为8位无符号整数
-    s_vert1.convertTo(s_vert1, CV_8U);
-    s_vert2.convertTo(s_vert2, CV_8U);
-    s45.convertTo(s45, CV_8U);
-    s135.convertTo(s135, CV_8U);
-
-    // 左移5个像素 - 使用参考程序中的方法
     cv::Mat shifted = cv::Mat::zeros(s_vert2.size(), s_vert2.type());
-    s_vert2(cv::Rect(5, 0, s_vert2.cols - 5, s_vert2.rows)).copyTo(
-        shifted(cv::Rect(0, 0, s_vert2.cols - 5, s_vert2.rows)));
+    if (s_vert2.cols > 5) {
+        s_vert2(cv::Rect(5, 0, s_vert2.cols - 5, s_vert2.rows)).copyTo(
+            shifted(cv::Rect(0, 0, s_vert2.cols - 5, s_vert2.rows)));
+    }
     s_vert2 = shifted;
 
-    // 处理对角线结果
     int mid = gray.cols / 3;
-    s45(cv::Rect(0, 0, mid, gray.rows)) = 0;
+    if (mid > 0) {
+        s45.colRange(0, mid) = 0;
+    }
     mid *= 2;
-    s135(cv::Rect(mid, 0, gray.cols - mid, gray.rows)) = 0;
-    cv::Mat s_diag = cv::max(s45, s135);
+    if (mid < gray.cols) {
+        s135.colRange(mid, gray.cols) = 0;
+    }
 
-    // 处理垂直结果
+    cv::Mat s_diag = cv::max(s45, s135);
     cv::Mat s_vert = cv::max(s_vert1, s_vert2);
 
     FDEF_Result result;
@@ -153,11 +143,12 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
     cv::Mat mask = gray < 150;
     gray.setTo(150, mask);
     clahe->apply(gray, gray);
-    cv::GaussianBlur(gray, blurred, cv::Size(3, 5), 0);
+    cv::GaussianBlur(gray, blurred, cv::Size(3, 3), 0);
+    cv::GaussianBlur(blurred, blurred, cv::Size(3, 3), 0);
     FDEF_Result edges = FDEF(blurred);
     // 双阈值法
-    optimizedDoubleThreshold(edges.sVert, 0.86, 0.7);
-    optimizedDoubleThreshold(edges.sDiag, 0.86, 0.7);
+    optimizedDoubleThreshold(edges.sVert, 0.4, 0.2);
+    optimizedDoubleThreshold(edges.sDiag, 0.4, 0.2);
 
     double r = LaneTB::rho;
     double t = LaneTB::theta / 100.0 * CV_PI / 180.0;
