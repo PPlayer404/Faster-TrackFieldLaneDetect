@@ -6,9 +6,12 @@ struct ClusterDescriptor
 {
     int peakX;          //起始生长点（x坐标）
     double mainAngle;   //主导角度（弧度）
+    double peakDensity; //峰值强度
 };
 
-std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes);
+extern cv::Mat ipm_mat;
+
+std::vector<ClusterDescriptor> lanesCluster(std::vector<cv::Vec4i> lanes, double maxAngleThreshold = 45);
 void drawClusterLines(cv::Mat& frame, const std::vector<ClusterDescriptor>& descriptors);
 void filterLanes(std::vector<ClusterDescriptor>& lanes, double maxAngleThreshold);
 
