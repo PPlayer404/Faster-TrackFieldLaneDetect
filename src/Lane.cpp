@@ -133,16 +133,13 @@ FDEF_Result FDEF(const cv::Mat& gray)
 /// @return 原始直线组结果
 std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 {
-
     cv::Mat blurred, gray, blurred_1;
-    cv::cvtColor(processed_img, gray, cv::COLOR_BGR2GRAY);
+    cv::transform(processed_img, gray, cv::Matx13f(0.114f / 0.701f, 0.587f / 0.701f, 0.0f));
+    cv::GaussianBlur(gray, gray, cv::Size(3, 3), 0);
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(1.7, cv::Size(4, 2));
     clahe->apply(gray, gray);
-    cv::Mat mask = gray < 150;
-    gray.setTo(150, mask);
-    clahe->apply(gray, gray);
+    ShadowLift(gray, 170, 140);
     cv::GaussianBlur(gray, blurred, cv::Size(3, 3), 0);
-    cv::GaussianBlur(blurred, blurred, cv::Size(3, 3), 0);
     FDEF_Result edges = FDEF(blurred);
     // 双阈值法
     optimizedDoubleThreshold(edges.sVert, 0.6, 0.4);
@@ -210,34 +207,51 @@ std::vector<cv::Vec4i> detectLanes(cv::Mat& processed_img, HSV_Lane HSV)
 
 /// @brief 零开销拷贝，const强制要求不得修改传入的图像指针
 /// @param frame 输入图像，最好240*120
-/// @return 校正之后的图片
+/// @return 校正之后的图片，仅校正亮度
 cv::Mat color_correction(const cv::Mat& frame)
 {
-    // BGR -> LAB
     cv::Mat lab;
     cv::cvtColor(frame, lab, cv::COLOR_BGR2Lab);
-
     std::vector<cv::Mat> lab_planes;
-    cv::split(lab, lab_planes);          // lab_planes[0]=L, [1]=a, [2]=b
+    cv::split(lab, lab_planes); // lab_planes[0]=L, [1]=a, [2]=b
 
-    // CLAHE on L channel
+    //仅对L通道应用CLAHE
     cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(2.0, cv::Size(4, 2));
     clahe->apply(lab_planes[0], lab_planes[0]);
-
-    // a-channel: a' = clip(a - mean(a) + 128, 0, 255)
-    cv::Scalar mean_a = cv::mean(lab_planes[1]);
-    lab_planes[1] = lab_planes[1] - mean_a[0] + 128.0;
-    cv::threshold(lab_planes[1], lab_planes[1], 255, 255, cv::THRESH_TRUNC);
-    cv::threshold(lab_planes[1], lab_planes[1], 0, 0, cv::THRESH_TOZERO);
-
-    // Merge channels back
     cv::Mat lab_corrected;
     cv::merge(lab_planes, lab_corrected);
 
-    // LAB -> BGR
+    //LAB -> BGR
     cv::Mat result;
     cv::cvtColor(lab_corrected, result, cv::COLOR_Lab2BGR);
     return result;
+}
+
+
+/// @brief 对灰度图进行暗部提升
+/// @param gray 输入灰度图
+/// @param threshold 截断阈值
+/// @param lift_to 提升后的最低值
+void ShadowLift(cv::Mat& gray, int threshold, int lift_to) {
+    //参数检查
+    CV_Assert(threshold > lift_to && lift_to >= 0 && threshold < 256);
+    cv::Mat lookUpTable(1, 256, CV_8U);
+    uchar* p = lookUpTable.ptr();
+
+    //计算二次多项式系数
+    float a = (float)lift_to / (threshold * threshold);
+    float b = 1.0f - 2.0f * lift_to / threshold;
+    //填充映射
+    for (int i = 0; i < threshold; ++i) {
+        float x = (float)i;
+        p[i] = cv::saturate_cast<uchar>(a * x * x + b * x + lift_to);
+    }
+    for (int i = threshold; i < 256; ++i) {
+        p[i] = i;
+    }
+
+    //查表完成变换
+    cv::LUT(gray, lookUpTable, gray);
 }
 
 /// @brief 进度条初始化

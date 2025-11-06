@@ -27,5 +27,6 @@ cv::Mat labGetBlob(const cv::Mat& bgr, const int th[6]);
 void FastGuidedFilter(cv::Mat& srcImage, cv::Mat& guidedImage, cv::Mat& outputImage, int filterSize, double eps, int samplingRate);
 cv::Mat fastGuidedFilter_2(cv::Mat I_org, cv::Mat p_org, int r, double eps, int s);
 cv::Mat frangi_filter(const cv::Mat& src, float sigma_start = 1.0f, float sigma_end = 5.0f, float sigma_step = 0.5f, float beta1 = 0.5f, float beta2 = 15.0f);
+void ShadowLift(cv::Mat& gray, int threshold, int lift_to);
 
 #endif
