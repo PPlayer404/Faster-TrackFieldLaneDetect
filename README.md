@@ -10,11 +10,14 @@ This project provides solutions for track line detection in competition scenario
 
 ## Functions
 
-This project captures gradient information on the track using a self-developed NMS-free multi-directional gradient Canny operator. Combined with Hough Transform and DBSCAN clustering, it achieves robust and fast lane line recognition and tracking. It is partially immune to strong light reflections and uneven lighting conditions. Extensive use of double buffering mechanisms with lock-free read/write operations optimizes performance. The bare project runs at 60fps-70fps on a Raspberry Pi 4B, making it suitable for related competitions. It supports cross-platform use directly in Windows/Linux environments. When running on Windows, it reads the sample video from the `img` folder; on Linux, it accesses camera 0 for real-time processing.
+This project captures gradient information on the track using a self-developed NMS-free multi-directional gradient Canny operator. Combined with Hough Transform and DBSCAN clustering, it achieves robust and fast lane line recognition and tracking. It is partially immune to strong light reflections and uneven lighting conditions. 
+
+Extensive use of double buffering mechanisms with lock-free read/write operations optimizes performance. The bare project runs at 60fps-70fps on a Raspberry Pi 4B, making it suitable for related competitions. It supports cross-platform use directly in Windows/Linux environments. When running on Windows, it reads the sample video from the `img` folder; on Linux, it accesses camera 0 for real-time processing.
 
 ## Warnings
 
 This project makes extensive use of thread schedulers. Please ensure your processor has at least 4 cores, or manually modify the code to reduce the number of threads. Otherwise, performance degradation or even failure may occur.
+
 This project uses the C++20 standard. If your compiler supports only C++17 or C++14 standards, please replace the coroutine implementation with the Boost library implementation or directly disable the corresponding code. This part is primarily used for state machine scheduling and does not affect the vision processing functionality.
 
 ## How to Use
@@ -28,7 +31,7 @@ This project uses the C++20 standard. If your compiler supports only C++17 or C+
   2. Then open the project's `.sln` file, select Release mode, and configure OpenCV version 4.1.0+ for the Release mode yourself. After that, select build and run.
 - **Configuration Options**: In `mode.hpp`, you can choose:
   - Whether to enable `imshow` display (enabled by default)
-  - Whether to enable Kalman filter result display (enabled by default)
+  - Whether to enable Kalman filter result display (disabled by default)
   - Whether to enable slow debugging (enabled by default)
 
 ## License
