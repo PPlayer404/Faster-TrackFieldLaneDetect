@@ -1,65 +1,34 @@
-此Readme与项目功能无关，纯粹是一个接口记录
+```markdown
+# Faster-TrackFieldLaneDetect
 
-世界模型双缓冲发布机制
+本项目主要提供竞赛中在田径场中寻迹的相关解决方案。
 
-生产者写入缓冲区A
-世界线程唤醒后交换缓冲区AB
-WorldSnapshot World::dataSync()内加锁提取缓冲区B
-WorldSnapshot World::dataSync()内无锁计算滤波融合
+## Functions
 
-sync返回融合好的数据，世界线程全局发布：
-WorldSnapshot fresh = gWorld.dataSync();
-{
-    std::lock_guard<std::mutex> lk(gSnapMutex);
-    gSnap = std::move(fresh);   // 整包移动   
-}
+本项目通过自研的去NMS-多向梯度Canny算子捕获赛道中的梯度信息，结合霍夫变换和DBSCAN聚类，鲁棒快速地完成车道线识别和寻迹。可部分免疫强光反射以及不均匀光照影响。大量使用双缓冲机制无锁读写以优化性能，裸项目在树莓派4b上可以60fps-70fps运行，适用于相关竞赛。支持在Windows/Linux环境中跨平台直接使用，在Windows环境中使用会读取`img`文件夹中的示例视频，在Linux使用则会读取摄像头0进行实时处理。
 
-其他线程带互斥锁读取发布的世界数据：
-WorldSnapshot snap;
-{
-    std::lock_guard<std::mutex> lk(gSnapMutex);
-    snap = gSnap;          // 拷贝（或移动）到本地
-}
+## Warnings
 
+本项目大量使用了线程调度器，请保证处理器至少有4个核心或手动修改代码减少线程数，否则可能导致性能下降甚至无法使用。
+本项目使用cpp20标准，如果你的编译器是cpp17或者cpp14标准，请你自行将协程部分实现替换为boost库中的实现或者直接屏蔽相应代码。这一部分主要用于状态机调度，不影响视觉部分使用
 
+## How to Use
 
-帧分发双缓冲机制
+- **功能模块使用**：如果你想使用本项目中的功能模块，那么本项目中单独的文件皆支持Linux/Windows编译，可以将对应的`.cpp`文件和`.hpp`文件直接复制。
+- **完整项目运行**：如果你想直接运行完整的项目，请先安装VS2022用于构建项目。
+  1. 在你希望存放项目的目录中右键打开终端，输入以下语句克隆代码仓库：
+     ```bash
+     git clone https://github.com/PPlayer404/Faster-TrackFieldLaneDetect.git
+     ```
+  2. 随后打开项目`.sln`文件，选择Release模式，并自行配置Release模式下的OpenCV 4.1.0+版本，然后选择编译运行即可。
+- **配置选项**：在`mode.hpp`中，你可以选择：
+  - 是否开启`imshow`显示（默认开启）
+  - 是否开启卡尔曼滤波结果显示（默认开启）
+  - 是否开启慢速调试（默认开启）
 
-单个数据包构成：两帧图像加一个帧标号，实例化为结构体数组
-extern std::atomic<std::uint_fast8_t> current_read_id;来切换双缓冲
-struct FrameData {
-    cv::Mat rawFrame;           //原始帧，给模型的
-    cv::Mat processedFrame;     //预处理帧
-    uint64_t frameId;           //帧编号
-};
+## License
 
-frameID：记录当前帧的标号，接收端根据ID确保自己接受新帧
+本项目仅供交流学习。
 
-发布：
-{
-    std::unique_lock<std::shared_mutex> lock(ReadFreamMutex);
-    CoreFrameData[!current_read_id].rawFrame = frame;
-    CoreFrameData[!current_read_id].processedFrame = processedFrame;
-    CoreFrameData[!current_read_id].frameId = frameId;
-    current_read_id = 1 - current_read_id;
-}
-
-接受：
-
-//获取帧
-if (CoreFrameData[current_read_id].frameId > frameID)
-{
-    std::shared_lock<std::shared_mutex> lock(ReadFreamMutex);
-    rawFrame = CoreFrameData[current_read_id].rawFrame;
-    processedFrame = CoreFrameData[current_read_id].processedFrame;
-    frameID = CoreFrameData[current_read_id].frameId;
-}
-else
-{
-    delay_ms(10);
-    continue;
-}
-
-目前绝对支持cpp20标准，不支持cpp17（但是协程改boost库实现就可以了），大概率不兼容cpp11，请自行适配编译器的cpp版本号
-主程序在world线程的协程里，可以按需写逻辑，但是正确性暂时只是std::cout正常，其他还未测试
-
+如有问题可提交Issue或邮箱联系作者：439887968@qq.com
+```
