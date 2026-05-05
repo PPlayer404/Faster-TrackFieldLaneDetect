@@ -1,3 +1,8 @@
+<!-- README.md -->
+<p align="right">
+  <a href="./README_zh.md">中文</a>
+</p>
+
 # Faster-TrackFieldLaneDetect
 
 This project provides solutions for track line detection in competition scenarios.
