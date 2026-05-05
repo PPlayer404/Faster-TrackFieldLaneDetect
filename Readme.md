@@ -1,4 +1,4 @@
-# Faster-TrackFieldLaneDetect
+[# Faster-TrackFieldLaneDetect
 
 本项目主要提供竞赛中在田径场中寻迹的相关解决方案。
 
@@ -27,6 +27,7 @@
 
 ## License
 
-本项目仅供交流学习。
+本项目采用 [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html) 协议开源。
 
 如有问题可提交Issue或邮箱联系作者：439887968@qq.com
+](https://github.com/PPlayer404/Faster-TrackFieldLaneDetect/edit/main/Readme.md)
