@@ -1,9 +1,6 @@
 <div align="right">
-  <a href="./README.md">
-    <img src="https://img.shields.io/badge/English-Readme-blue?style=flat-square" alt="English">
-  </a>
-  <a href="./README_zh.md">
-    <img src="https://img.shields.io/badge/中文-文档-red?style=flat-square" alt="中文">
+  <a href="./README_zh.md" style="text-decoration:none">
+    <img src="https://img.shields.io/badge/中文-切换语言-blue?style=for-the-badge" alt="切换到中文">
   </a>
 </div>
 
