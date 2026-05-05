@@ -1,7 +1,11 @@
-<!-- README.md -->
-<p align="right">
-  <a href="./README_zh.md">中文</a>
-</p>
+<div align="right">
+  <a href="./README.md">
+    <img src="https://img.shields.io/badge/English-Readme-blue?style=flat-square" alt="English">
+  </a>
+  <a href="./README_zh.md">
+    <img src="https://img.shields.io/badge/中文-文档-red?style=flat-square" alt="中文">
+  </a>
+</div>
 
 # Faster-TrackFieldLaneDetect
 
