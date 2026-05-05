@@ -16,9 +16,9 @@ Extensive use of double buffering mechanisms with lock-free read/write operation
 
 ## Warnings
 
-This project makes extensive use of thread schedulers. Please ensure your processor has at least 4 cores, or manually modify the code to reduce the number of threads. Otherwise, performance degradation or even failure may occur.
+**This project makes extensive use of thread schedulers.** Please ensure your processor has at least 4 cores, or manually modify the code to reduce the number of threads. Otherwise, performance degradation or even failure may occur.
 
-This project uses the C++20 standard. If your compiler supports only C++17 or C++14 standards, please replace the coroutine implementation with the Boost library implementation or directly disable the corresponding code. This part is primarily used for state machine scheduling and does not affect the vision processing functionality.
+**This project uses the C++20 standard.** If your compiler supports only C++17 or C++14 standards, please replace the coroutine implementation with the Boost library implementation or directly disable the corresponding code. This part is primarily used for state machine scheduling and does not affect the vision processing functionality.
 
 ## How to Use
 
