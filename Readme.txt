@@ -1,4 +1,3 @@
-```markdown
 # Faster-TrackFieldLaneDetect
 
 本项目主要提供竞赛中在田径场中寻迹的相关解决方案。
@@ -31,4 +30,3 @@
 本项目仅供交流学习。
 
 如有问题可提交Issue或邮箱联系作者：439887968@qq.com
-```
