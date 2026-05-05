@@ -1,33 +1,32 @@
 # Faster-TrackFieldLaneDetect
 
-本项目主要提供竞赛中在田径场中寻迹的相关解决方案。
+This project provides solutions for track line detection in competition scenarios.
 
 ## Functions
 
-本项目通过自研的去NMS-多向梯度Canny算子捕获赛道中的梯度信息，结合霍夫变换和DBSCAN聚类，鲁棒快速地完成车道线识别和寻迹。可部分免疫强光反射以及不均匀光照影响。大量使用双缓冲机制无锁读写以优化性能，裸项目在树莓派4b上可以60fps-70fps运行，适用于相关竞赛。支持在Windows/Linux环境中跨平台直接使用，在Windows环境中使用会读取`img`文件夹中的示例视频，在Linux使用则会读取摄像头0进行实时处理。
+This project captures gradient information on the track using a self-developed NMS-free multi-directional gradient Canny operator. Combined with Hough Transform and DBSCAN clustering, it achieves robust and fast lane line recognition and tracking. It is partially immune to strong light reflections and uneven lighting conditions. Extensive use of double buffering mechanisms with lock-free read/write operations optimizes performance. The bare project runs at 60fps-70fps on a Raspberry Pi 4B, making it suitable for related competitions. It supports cross-platform use directly in Windows/Linux environments. When running on Windows, it reads the sample video from the `img` folder; on Linux, it accesses camera 0 for real-time processing.
 
 ## Warnings
 
-本项目大量使用了线程调度器，请保证处理器至少有4个核心或手动修改代码减少线程数，否则可能导致性能下降甚至无法使用。
-本项目使用cpp20标准，如果你的编译器是cpp17或者cpp14标准，请你自行将协程部分实现替换为boost库中的实现或者直接屏蔽相应代码。这一部分主要用于状态机调度，不影响视觉部分使用
+This project makes extensive use of thread schedulers. Please ensure your processor has at least 4 cores, or manually modify the code to reduce the number of threads. Otherwise, performance degradation or even failure may occur.
+This project uses the C++20 standard. If your compiler supports only C++17 or C++14 standards, please replace the coroutine implementation with the Boost library implementation or directly disable the corresponding code. This part is primarily used for state machine scheduling and does not affect the vision processing functionality.
 
 ## How to Use
 
-- **功能模块使用**：如果你想使用本项目中的功能模块，那么本项目中单独的文件皆支持Linux/Windows编译，可以将对应的`.cpp`文件和`.hpp`文件直接复制。
-- **完整项目运行**：如果你想直接运行完整的项目，请先安装VS2022用于构建项目。
-  1. 在你希望存放项目的目录中右键打开终端，输入以下语句克隆代码仓库：
+- **Using Functional Modules**: If you wish to use the functional modules in this project, the individual files all support Linux/Windows compilation. You can directly copy the corresponding `.cpp` and `.hpp` files.
+- **Running the Complete Project**: If you wish to run the full project directly, please install VS2022 for building the project first.
+  1. Right-click to open a terminal in the directory where you want to store the project, and enter the following command to clone the code repository:
      ```bash
      git clone https://github.com/PPlayer404/Faster-TrackFieldLaneDetect.git
      ```
-  2. 随后打开项目`.sln`文件，选择Release模式，并自行配置Release模式下的OpenCV 4.1.0+版本，然后选择编译运行即可。
-- **配置选项**：在`mode.hpp`中，你可以选择：
-  - 是否开启`imshow`显示（默认开启）
-  - 是否开启卡尔曼滤波结果显示（默认开启）
-  - 是否开启慢速调试（默认开启）
+  2. Then open the project's `.sln` file, select Release mode, and configure OpenCV version 4.1.0+ for the Release mode yourself. After that, select build and run.
+- **Configuration Options**: In `mode.hpp`, you can choose:
+  - Whether to enable `imshow` display (enabled by default)
+  - Whether to enable Kalman filter result display (enabled by default)
+  - Whether to enable slow debugging (enabled by default)
 
 ## License
 
-本项目采用 [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html) 协议开源。
+This project is open-sourced under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html) license.
 
-如有问题可提交Issue或邮箱联系作者：439887968@qq.com
-](https://github.com/PPlayer404/Faster-TrackFieldLaneDetect/edit/main/Readme.md)
+For any questions, please submit an Issue or contact the author via email: 439887968@qq.com
