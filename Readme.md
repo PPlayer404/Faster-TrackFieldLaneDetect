@@ -1,4 +1,4 @@
-[# Faster-TrackFieldLaneDetect
+# Faster-TrackFieldLaneDetect
 
 本项目主要提供竞赛中在田径场中寻迹的相关解决方案。
 
